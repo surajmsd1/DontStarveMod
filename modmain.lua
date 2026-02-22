@@ -180,9 +180,12 @@ local function CreateEventManager(world)
 
     function mgr:OnDayStart()
         local currentDay = self:GetCurrentDay()
-        if currentDay <= self.lastDayProcessed then return end
-        self.lastDayProcessed = currentDay
-        Log("Day " .. currentDay .. " has begun!")
+        Log("OnDayStart called - currentDay: " .. currentDay .. ", lastDayProcessed: " .. self.lastDayProcessed)
+        -- Use < instead of <= so day 0 triggers (cycles start at 0)
+        if currentDay < self.lastDayProcessed then return end
+        if currentDay == self.lastDayProcessed and self.lastDayProcessed > 0 then return end
+        self.lastDayProcessed = currentDay + 1  -- Mark this day as processed
+        Log("Day " .. currentDay .. " has begun! Triggering daily event...")
         self:TriggerRandomEvent(EVENT_TRIGGER.DAILY, nil)
 
         local currentWeek = self:GetCurrentWeek()
@@ -262,19 +265,20 @@ end
 -- Helper functions for events
 local function GetRandomPlayer()
     local players = GLOBAL.AllPlayers or {}
-    LogVerbose("GetRandomPlayer: AllPlayers has " .. #players .. " players")
+    Log("GetRandomPlayer: AllPlayers has " .. #players .. " players")
     if #players == 0 then
-        LogVerbose("WARNING: No players found!")
+        Log("ERROR: No players found in AllPlayers!")
         return nil
     end
     local player = players[math.random(#players)]
-    LogVerbose("Selected player: " .. tostring(player))
+    Log("GetRandomPlayer: Selected " .. tostring(player))
     return player
 end
 
 local function SpawnNear(prefab, x, z, radius)
-    LogVerbose("SpawnNear: " .. prefab .. " at (" .. x .. ", " .. z .. ") radius " .. radius)
+    Log("SpawnNear: " .. tostring(prefab) .. " at (" .. tostring(x) .. ", " .. tostring(z) .. ") radius " .. tostring(radius))
     local entity = GLOBAL.SpawnPrefab(prefab)
+    Log("SpawnPrefab returned: " .. tostring(entity))
     if entity then
         local angle = math.random() * 2 * math.pi
         local dist = math.random() * radius
@@ -619,9 +623,10 @@ local SPECIAL_EVENTS = {
 
 -- Execute simple spawn-based event
 local function ExecuteSimpleEvent(data, world, target)
-    Log("Executing " .. data.name)
+    Log(">>> ExecuteSimpleEvent: " .. data.name)
 
     local players = data.all_players and (GLOBAL.AllPlayers or {}) or {target or GetRandomPlayer()}
+    Log(">>> Players to process: " .. #players)
 
     for _, player in ipairs(players) do
         if player then
@@ -652,6 +657,7 @@ local function ExecuteSimpleEvent(data, world, target)
                 end
 
                 -- Spawn the items
+                Log(">>> Spawning " .. count .. "x " .. tostring(prefab) .. " at (" .. spawnX .. ", " .. spawnZ .. ")")
                 for i = 1, count do
                     if spawn.velocity then
                         SpawnWithVelocity(prefab, spawnX, spawnZ, spawn.velocity)

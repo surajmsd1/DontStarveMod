@@ -4,7 +4,7 @@
 name = "Mystery Box"
 description = "DnD Gamemaster style mod! Daily events, epic challenges, and mystery boxes. Cursed boxes spawn enemies, Golden boxes rain loot. Features Arena Challenge, Shadow Invasion, Giant Awakens, and more!"
 author = "DontStarveMod"
-version = "2.5.0"
+version = "2.5.1"
 
 -- Don't Starve Together compatibility
 api_version = 10
