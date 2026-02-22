@@ -5,6 +5,13 @@ Transform DST from survival grind into goal-oriented gameplay for expert players
 
 ## Core Principle: Build It Right The First Time
 
+### Good Coding Principles
+1. **No duplicate code** unless there's a good reason
+2. **Data-driven over code-driven** - events should be data tables, not 50 lines of copy-pasted functions
+3. **Single responsibility** - each function does one thing
+4. **Fail fast with clear errors** - check inputs, log problems
+5. **Test before integrating** - verify small pieces work in console first
+
 ### Before Writing ANY Code:
 1. **Check the docs/** folder for existing patterns
 2. **Search `docs/dst-api/` for the API you need**
@@ -112,10 +119,21 @@ DontStarveMod/
 
 ## Testing Strategy
 
-### Before Uploading to Workshop:
-1. **Syntax check**: `luac -p filename.lua`
-2. **Console test**: Spawn items, trigger events manually
-3. **Verify logs**: Check for `[Mystery Box]` messages
+### Pre-Flight Checklist (Before Uploading):
+1. **Syntax check all Lua files**: `luac -p filename.lua`
+2. **Check log file location**: `~/Library/Application Support/Klei/DoNotStarveTogether/client_log.txt`
+3. **Version bump**: Update modinfo.lua version
+
+### Testing Without Full Game Restart:
+- Use console to test individual functions
+- Reload mod with `c_reset()` (restarts to last save)
+- Check client_log.txt for errors while game runs
+
+### Quick Syntax Check Script:
+```bash
+# Run from mod directory
+for f in *.lua scripts/**/*.lua; do luac -p "$f" && echo "OK: $f"; done
+```
 
 ### Useful Console Commands:
 ```lua

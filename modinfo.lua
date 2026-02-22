@@ -2,9 +2,9 @@
 -- A placeable box that rewards players with random items when activated
 
 name = "Mystery Box"
-description = "Place a mystery box in the world and activate it to receive a random reward! Contains various items from common to rare."
+description = "DnD Gamemaster style mod! Daily events, epic challenges, and mystery boxes. Cursed boxes spawn enemies, Golden boxes rain loot. Features Arena Challenge, Shadow Invasion, Giant Awakens, and more!"
 author = "DontStarveMod"
-version = "2.2.2"
+version = "2.4.0"
 
 -- Don't Starve Together compatibility
 api_version = 10

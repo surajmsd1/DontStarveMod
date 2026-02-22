@@ -18,37 +18,37 @@ The project guidelines are in CLAUDE.md. Follow them.
 ### Phase 1: Core API Documentation
 Research and document in `docs/dst-api/`:
 
-- [ ] **world-state.md** - Complete time/season/phase API
+- [x] **world-state.md** - Complete time/season/phase API
   - All TheWorld.state properties
   - WatchWorldState patterns
   - How to detect day transitions
   - Season change hooks
 
-- [ ] **entities.md** - Entity/Prefab system
+- [x] **entities.md** - Entity/Prefab system
   - SpawnPrefab details
   - Transform component
   - Entity lifecycle (creation, removal)
   - Tags system
   - How entities are networked (mastersim vs client)
 
-- [ ] **components.md** - Full component reference
+- [x] **components.md** - Full component reference
   - List ALL built-in components (from dst_gamescripts repo)
   - For each: purpose, key methods, example usage
   - Focus on: health, combat, inventory, locomotor, lootdropper
 
-- [ ] **events.md** - Event system
+- [x] **events.md** - Event system
   - ListenForEvent patterns
   - PushEvent usage
   - Common events (death, attacked, picked, etc.)
   - World events
 
-- [ ] **networking.md** - Multiplayer specifics
+- [x] **networking.md** - Multiplayer specifics
   - mastersim vs client
   - Network components
   - RPC system (if relevant)
   - TheNet API
 
-- [ ] **prefab-list.md** - Spawnable prefabs catalog
+- [x] **prefab-list.md** - Spawnable prefabs catalog
   - Mobs (spiders, hounds, bosses)
   - Items (weapons, armor, tools, food)
   - Resources (logs, rocks, gems)
