@@ -58,19 +58,19 @@ Research and document in `docs/dst-api/`:
 ### Phase 2: Animation & Custom Content
 Research and document:
 
-- [ ] **docs/dst-api/animations.md**
+- [x] **docs/dst-api/animations.md**
   - How DST animations work (Spriter format)
   - AnimState component
   - Banks and builds
   - PlayAnimation, PushAnimation
   - State graphs basics
 
-- [ ] **docs/dst-api/stategraphs.md**
+- [x] **docs/dst-api/stategraphs.md**
   - What are state graphs
   - How mobs use them
   - Creating custom behavior
 
-- [ ] **docs/dst-api/brains.md**
+- [x] **docs/dst-api/brains.md**
   - AI behavior trees
   - How mobs decide what to do
   - Creating custom AI
@@ -78,26 +78,26 @@ Research and document:
 ### Phase 3: Patterns Library
 Create reusable templates in `docs/patterns/`:
 
-- [ ] **multi-wave-event.md** - Timed wave spawning
+- [x] **multi-wave-event.md** - Timed wave spawning
   - DoTaskInTime chains
   - Tracking spawned entities
   - Victory detection
 
-- [ ] **loot-tables.md** - Weighted random selection
+- [x] **loot-tables.md** - Weighted random selection
   - Weight calculation
   - Rarity tiers
 
-- [ ] **custom-prefab.md** - Creating new entities
+- [x] **custom-prefab.md** - Creating new entities
   - Full prefab file template
   - Common components to add
   - Assets declaration
 
-- [ ] **boss-fight.md** - Boss encounter pattern
+- [x] **boss-fight.md** - Boss encounter pattern
   - Prep phase, fight phase, reward phase
   - Health tracking
   - Multi-phase bosses
 
-- [ ] **quest-system.md** - Multi-step objectives
+- [x] **quest-system.md** - Multi-step objectives
   - State tracking
   - Progress persistence
   - Completion rewards
@@ -105,10 +105,10 @@ Create reusable templates in `docs/patterns/`:
 ### Phase 4: External Resources
 Update `docs/external/links.md`:
 
-- [ ] Find and add best tutorial threads from Klei Forums
-- [ ] Find good open-source mods on GitHub to study
-- [ ] Add YouTube tutorial links
-- [ ] Link to specific helpful wiki pages
+- [x] Find and add best tutorial threads from Klei Forums
+- [x] Find good open-source mods on GitHub to study
+- [x] Add YouTube tutorial links
+- [x] Link to specific helpful wiki pages
 
 ## Research Sources
 
@@ -159,8 +159,8 @@ Where this info came from.
 ```
 
 ## Success Criteria
-- [ ] Can look up any common DST API in docs/
-- [ ] Each doc has working code examples
-- [ ] Gotchas are documented (no more GLOBAL surprises)
-- [ ] Prefab list is comprehensive and categorized
-- [ ] Patterns are copy-paste ready
+- [x] Can look up any common DST API in docs/
+- [x] Each doc has working code examples
+- [x] Gotchas are documented (no more GLOBAL surprises)
+- [x] Prefab list is comprehensive and categorized
+- [x] Patterns are copy-paste ready

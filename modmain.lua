@@ -306,687 +306,556 @@ local function SpawnWithVelocity(prefab, x, z, velY)
     return entity
 end
 
--- Register all events
-local function RegisterAllEvents(mgr)
-    Log("Registering events...")
+-- =============================================================================
+-- EVENT DATA TABLES (Data-driven approach - easy to add/modify events)
+-- =============================================================================
 
-    -- =====================
+-- Simple events: just spawn items near player (no timed waves or special logic)
+local SIMPLE_EVENTS = {
     -- REWARD EVENTS
-    -- =====================
-
-    -- Daily Gift (Reward)
-    mgr:RegisterEvent({
-        id = "daily_gift",
+    daily_gift = {
         name = "Daily Gift",
+        announcement = "The spirits have left a small gift...",
         category = EVENT_CATEGORY.REWARD,
         rarity = EVENT_RARITY.COMMON,
         trigger = EVENT_TRIGGER.DAILY,
-        GetAnnouncement = function() return "The spirits have left a small gift..." end,
-        Execute = function(self, world, target)
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-            local gifts = {"goldnugget", "silk", "rope", "boards"}
-            SpawnNear(gifts[math.random(#gifts)], x, z, 3)
-        end,
-    })
-
-    -- Weekly Treasure (Reward)
-    mgr:RegisterEvent({
-        id = "weekly_treasure",
+        spawns = {
+            {prefab = {"goldnugget", "silk", "rope", "boards"}, count = 1, radius = 3, random_pick = true},
+        },
+    },
+    weekly_treasure = {
         name = "Weekly Treasure",
+        announcement = "A week survived! Treasure appears!",
         category = EVENT_CATEGORY.REWARD,
         rarity = EVENT_RARITY.UNCOMMON,
         trigger = EVENT_TRIGGER.WEEKLY,
-        GetAnnouncement = function() return "A week survived! Treasure appears!" end,
-        Execute = function(self, world, target)
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-            SpawnNear("mysterybox", x, z, 5)
-            SpawnNear("redgem", x, z, 3)
-            SpawnNear("bluegem", x, z, 3)
-        end,
-    })
-
-    -- LOOT EXPLOSION (Reward - Epic for Golden Box)
-    mgr:RegisterEvent({
-        id = "loot_explosion",
-        name = "LOOT EXPLOSION!",
-        category = EVENT_CATEGORY.REWARD,
-        rarity = EVENT_RARITY.UNCOMMON,
-        trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "LOOT EXPLOSION! Items rain from the sky!" end,
-        Execute = function(self, world, target)
-            Log("Executing LOOT EXPLOSION!")
-            local player = target or GetRandomPlayer()
-            if not player then
-                Log("ERROR: No player for loot explosion")
-                return
-            end
-            local x, y, z = player.Transform:GetWorldPosition()
-            Log("Player position: " .. x .. ", " .. z)
-
-            local loot = {
-                "goldnugget", "goldnugget", "goldnugget", "goldnugget", "goldnugget",
-                "redgem", "bluegem", "purplegem",
-                "silk", "silk", "silk",
-                "rope", "rope",
-                "boards", "boards", "boards",
-                "cutgrass", "cutgrass", "cutgrass", "cutgrass",
-                "twigs", "twigs", "twigs", "twigs",
-                "log", "log", "log",
-                "meat", "meat",
-                "honey", "honey",
-            }
-
-            -- Spawn items with delay for dramatic effect
-            for i, item in ipairs(loot) do
-                world:DoTaskInTime(i * 0.1, function()
-                    SpawnWithVelocity(item, x, z, 8)
-                end)
-            end
-            Log("LOOT EXPLOSION: Scheduled " .. #loot .. " items to spawn!")
-        end,
-    })
-
-    -- GEAR UP! (Reward)
-    mgr:RegisterEvent({
-        id = "gear_up",
-        name = "GEAR UP!",
-        category = EVENT_CATEGORY.REWARD,
-        rarity = EVENT_RARITY.UNCOMMON,
-        trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "GEAR UP! Equipment for everyone!" end,
-        Execute = function(self, world, target)
-            Log("Executing GEAR UP!")
-            for _, player in ipairs(GLOBAL.AllPlayers or {}) do
-                local x, y, z = player.Transform:GetWorldPosition()
-                SpawnNear("spear", x, z, 2)
-                SpawnNear("armorwood", x, z, 2)
-                SpawnNear("footballhat", x, z, 2)
-                SpawnNear("torch", x, z, 2)
-            end
-        end,
-    })
-
-    -- FEAST TIME (Reward)
-    mgr:RegisterEvent({
-        id = "feast_time",
+        spawns = {
+            {prefab = "mysterybox", count = 1, radius = 5},
+            {prefab = "redgem", count = 1, radius = 3},
+            {prefab = "bluegem", count = 1, radius = 3},
+        },
+    },
+    feast_time = {
         name = "FEAST TIME!",
+        announcement = "FEAST TIME! Food for everyone!",
         category = EVENT_CATEGORY.REWARD,
         rarity = EVENT_RARITY.COMMON,
         trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "FEAST TIME! Food for everyone!" end,
-        Execute = function(self, world, target)
-            Log("Executing FEAST TIME!")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            local foods = {
-                "cookedmeat", "cookedmeat", "cookedmeat", "cookedmeat",
-                "cookedfish", "cookedfish",
-                "honey", "honey", "honey",
-                "berries_cooked", "berries_cooked", "berries_cooked",
-                "carrot_cooked", "carrot_cooked",
-                "dragonfruit_cooked",
-                "cookedsmallmeat", "cookedsmallmeat",
-            }
-
-            for _, food in ipairs(foods) do
-                SpawnWithVelocity(food, x, z, 6)
-            end
-        end,
-    })
-
-    -- MAGIC STORM (Reward - Rare)
-    mgr:RegisterEvent({
-        id = "magic_storm",
-        name = "MAGIC STORM!",
-        category = EVENT_CATEGORY.REWARD,
-        rarity = EVENT_RARITY.RARE,
-        trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "MAGIC STORM! Arcane power descends!" end,
-        Execute = function(self, world, target)
-            Log("Executing MAGIC STORM!")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            local magic = {
-                "redgem", "redgem", "redgem",
-                "bluegem", "bluegem", "bluegem",
-                "purplegem", "purplegem",
-                "yellowgem",
-                "orangegem",
-                "greengem",
-                "amulet", -- Life Giving Amulet
-                "blueamulet", -- Chilled Amulet
-            }
-
-            for i, item in ipairs(magic) do
-                world:DoTaskInTime(i * 0.15, function()
-                    SpawnWithVelocity(item, x, z, 10)
-                end)
-            end
-        end,
-    })
-
-    -- BUILDER'S DREAM (Reward)
-    mgr:RegisterEvent({
-        id = "builders_dream",
+        spawns = {
+            {prefab = "cookedmeat", count = 4, radius = 5, velocity = 6},
+            {prefab = "cookedfish", count = 2, radius = 5, velocity = 6},
+            {prefab = "honey", count = 3, radius = 5, velocity = 6},
+            {prefab = "berries_cooked", count = 3, radius = 5, velocity = 6},
+            {prefab = "carrot_cooked", count = 2, radius = 5, velocity = 6},
+            {prefab = "dragonfruit_cooked", count = 1, radius = 5, velocity = 6},
+            {prefab = "cookedsmallmeat", count = 2, radius = 5, velocity = 6},
+        },
+    },
+    builders_dream = {
         name = "BUILDER'S DREAM!",
+        announcement = "BUILDER'S DREAM! Construction materials everywhere!",
         category = EVENT_CATEGORY.REWARD,
         rarity = EVENT_RARITY.COMMON,
         trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "BUILDER'S DREAM! Construction materials everywhere!" end,
-        Execute = function(self, world, target)
-            Log("Executing BUILDER'S DREAM!")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            -- 40 logs, 40 rocks, 20 gold, 10 rope
-            for i = 1, 40 do SpawnNear("log", x, z, 8) end
-            for i = 1, 40 do SpawnNear("rocks", x, z, 8) end
-            for i = 1, 20 do SpawnNear("goldnugget", x, z, 8) end
-            for i = 1, 10 do SpawnNear("rope", x, z, 8) end
-        end,
-    })
-
-    -- Butterfly Bonanza (Reward)
-    mgr:RegisterEvent({
-        id = "butterfly_bonanza",
+        spawns = {
+            {prefab = "log", count = 40, radius = 8},
+            {prefab = "rocks", count = 40, radius = 8},
+            {prefab = "goldnugget", count = 20, radius = 8},
+            {prefab = "rope", count = 10, radius = 8},
+        },
+    },
+    butterfly_bonanza = {
         name = "Butterfly Bonanza!",
+        announcement = "BONUS: Butterflies everywhere!",
         category = EVENT_CATEGORY.REWARD,
         rarity = EVENT_RARITY.COMMON,
         trigger = EVENT_TRIGGER.DAILY,
-        GetAnnouncement = function() return "BONUS: Butterflies everywhere!" end,
-        Execute = function(self, world, target)
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-            for i = 1, 15 do SpawnNear("butterfly", x, z, 12) end
-            SpawnNear("bugnet", x, z, 2)
-        end,
-    })
+        spawns = {
+            {prefab = "butterfly", count = 15, radius = 12},
+            {prefab = "bugnet", count = 1, radius = 2},
+        },
+    },
+    gear_up = {
+        name = "GEAR UP!",
+        announcement = "GEAR UP! Equipment for everyone!",
+        category = EVENT_CATEGORY.REWARD,
+        rarity = EVENT_RARITY.UNCOMMON,
+        trigger = EVENT_TRIGGER.MANUAL,
+        all_players = true,  -- Special flag: spawn for all players
+        spawns = {
+            {prefab = "spear", count = 1, radius = 2},
+            {prefab = "armorwood", count = 1, radius = 2},
+            {prefab = "footballhat", count = 1, radius = 2},
+            {prefab = "torch", count = 1, radius = 2},
+        },
+    },
+    treasure_hunt = {
+        name = "Treasure Hunt!",
+        announcement = "TREASURE HUNT! A mystery box appeared somewhere nearby!",
+        category = EVENT_CATEGORY.REWARD,
+        rarity = EVENT_RARITY.UNCOMMON,
+        trigger = EVENT_TRIGGER.MANUAL,
+        spawns = {
+            {prefab = "mysterybox", count = 1, radius = 5, distance = 60},  -- Spawn far away
+        },
+    },
 
-    -- =====================
     -- CHALLENGE EVENTS
-    -- =====================
-
-    -- Spider Ambush (Challenge)
-    mgr:RegisterEvent({
-        id = "spider_ambush",
+    spider_ambush = {
         name = "SPIDER AMBUSH!",
+        announcement = "WARNING: Spiders emerging! Gear nearby...",
         category = EVENT_CATEGORY.CHALLENGE,
         rarity = EVENT_RARITY.COMMON,
         trigger = EVENT_TRIGGER.DAILY,
-        GetAnnouncement = function() return "WARNING: Spiders emerging! Gear nearby..." end,
-        Execute = function(self, world, target)
-            Log("Executing SPIDER AMBUSH!")
-            local player = target or GetRandomPlayer()
-            if not player then
-                Log("ERROR: No player for spider ambush")
-                return
-            end
-            local x, y, z = player.Transform:GetWorldPosition()
-            Log("Spawning spiders at: " .. x .. ", " .. z)
-
-            -- Spawn gear first
-            SpawnNear("spear", x + 5, z + 5, 2)
-            SpawnNear("armorwood", x + 5, z + 5, 2)
-
-            -- Then spawn spiders
-            local spiderCount = math.random(5, 8)
-            for i = 1, spiderCount do
-                SpawnNear("spider", x, z, 8)
-            end
-            Log("Spawned " .. spiderCount .. " spiders!")
-        end,
-    })
-
-    -- Hound Wave (Challenge)
-    mgr:RegisterEvent({
-        id = "hound_wave",
+        spawns = {
+            {prefab = "spear", count = 1, radius = 2, offset_x = 5, offset_z = 5},
+            {prefab = "armorwood", count = 1, radius = 2, offset_x = 5, offset_z = 5},
+            {prefab = "spider", count = {5, 8}, radius = 8},  -- Random count
+        },
+    },
+    hound_wave = {
         name = "HOUND WAVE!",
+        announcement = "DANGER: Hounds approach! Gold awaits the brave!",
         category = EVENT_CATEGORY.CHALLENGE,
         rarity = EVENT_RARITY.UNCOMMON,
         trigger = EVENT_TRIGGER.DAILY,
-        GetAnnouncement = function() return "DANGER: Hounds approach! Gold awaits the brave!" end,
-        Execute = function(self, world, target)
-            Log("Executing HOUND WAVE!")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            -- Spawn gold as reward marker
-            for i = 1, 5 do SpawnNear("goldnugget", x - 8, z - 8, 3) end
-
-            -- Spawn hounds
-            local houndCount = math.random(3, 5)
-            for i = 1, houndCount do SpawnNear("hound", x, z, 10) end
-            Log("Spawned " .. houndCount .. " hounds!")
-        end,
-    })
-
-    -- ARENA CHALLENGE (Challenge - Epic multi-wave)
-    mgr:RegisterEvent({
-        id = "arena_challenge",
-        name = "ARENA CHALLENGE!",
-        category = EVENT_CATEGORY.CHALLENGE,
-        rarity = EVENT_RARITY.RARE,
-        trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "ARENA CHALLENGE BEGINS! Survive 3 waves!" end,
-        Execute = function(self, world, target)
-            Log("=== ARENA CHALLENGE STARTING ===")
-            local player = target or GetRandomPlayer()
-            if not player then
-                Log("ERROR: No player for arena challenge")
-                return
-            end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            -- Drop initial gear
-            SpawnNear("spear", x, z, 3)
-            SpawnNear("armorwood", x, z, 3)
-            SpawnNear("healingsalve", x, z, 3)
-
-            -- WAVE 1: Spiders (immediate)
-            Log("ARENA WAVE 1: Spiders!")
-            if GLOBAL.TheNet then GLOBAL.TheNet:Announce("WAVE 1: SPIDERS!") end
-            for i = 1, 8 do SpawnNear("spider", x, z, 10) end
-
-            -- WAVE 2: Hounds (after 45 seconds)
-            world:DoTaskInTime(45, function()
-                Log("ARENA WAVE 2: Hounds!")
-                if GLOBAL.TheNet then GLOBAL.TheNet:Announce("WAVE 2: HOUNDS APPROACH!") end
-                -- Wave 1 rewards
-                SpawnNear("spear", x, z, 3)
-                SpawnNear("armorwood", x, z, 3)
-                for i = 1, 3 do SpawnNear("goldnugget", x, z, 4) end
-                -- Spawn hounds
-                for i = 1, 5 do SpawnNear("hound", x, z, 12) end
-            end)
-
-            -- WAVE 3: The Guardian (after 90 seconds)
-            world:DoTaskInTime(90, function()
-                Log("ARENA WAVE 3: The Guardian!")
-                if GLOBAL.TheNet then GLOBAL.TheNet:Announce("FINAL WAVE: THE GUARDIAN AWAKENS!") end
-                -- Wave 2 rewards
-                for i = 1, 5 do SpawnNear("goldnugget", x, z, 5) end
-                SpawnNear("redgem", x, z, 3)
-                SpawnNear("bluegem", x, z, 3)
-                -- Spawn the guardian (Treeguard)
-                SpawnNear("leif", x, z, 15)
-            end)
-
-            -- Victory rewards (after 150 seconds)
-            world:DoTaskInTime(150, function()
-                Log("ARENA CHALLENGE: Victory rewards!")
-                if GLOBAL.TheNet then GLOBAL.TheNet:Announce("ARENA COMPLETE! Claim your legendary rewards!") end
-                SpawnNear("purplegem", x, z, 3)
-                SpawnNear("purplegem", x, z, 3)
-                SpawnNear("greengem", x, z, 3)
-                SpawnNear("orangegem", x, z, 3)
-                SpawnNear("yellowgem", x, z, 3)
-                SpawnNear("thulecite", x, z, 3)
-                SpawnNear("armorruins", x, z, 3)
-            end)
-        end,
-    })
-
-    -- SHADOW INVASION (Challenge - Creepy)
-    mgr:RegisterEvent({
-        id = "shadow_invasion",
-        name = "SHADOW INVASION!",
-        category = EVENT_CATEGORY.CHALLENGE,
-        rarity = EVENT_RARITY.RARE,
-        trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "SHADOW INVASION! The darkness hungers..." end,
-        Execute = function(self, world, target)
-            Log("=== SHADOW INVASION STARTING ===")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            -- Wave 1: 2 crawling horrors
-            Log("Shadow Wave 1!")
-            if GLOBAL.TheNet then GLOBAL.TheNet:Announce("The shadows stir...") end
-            for i = 1, 2 do SpawnNear("crawlinghorror", x, z, 15) end
-
-            -- Wave 2: 4 crawling horrors (30 sec)
-            world:DoTaskInTime(30, function()
-                Log("Shadow Wave 2!")
-                if GLOBAL.TheNet then GLOBAL.TheNet:Announce("THE SHADOWS GROW STRONGER!") end
-                for i = 1, 4 do SpawnNear("crawlinghorror", x, z, 15) end
-            end)
-
-            -- Wave 3: 6 crawling horrors (60 sec)
-            world:DoTaskInTime(60, function()
-                Log("Shadow Wave 3!")
-                if GLOBAL.TheNet then GLOBAL.TheNet:Announce("DARKNESS OVERWHELMS!") end
-                for i = 1, 6 do SpawnNear("crawlinghorror", x, z, 15) end
-            end)
-
-            -- Rewards (90 sec)
-            world:DoTaskInTime(90, function()
-                Log("Shadow Invasion Rewards!")
-                if GLOBAL.TheNet then GLOBAL.TheNet:Announce("The shadows recede... rewards remain!") end
-                for i = 1, 5 do SpawnNear("nightmarefuel", x, z, 5) end
-                SpawnNear("nightsword", x, z, 3)
-                SpawnNear("armor_sanity", x, z, 3)
-            end)
-        end,
-    })
-
-    -- FROG APOCALYPSE (Challenge - Chaos)
-    mgr:RegisterEvent({
-        id = "frog_apocalypse",
+        spawns = {
+            {prefab = "goldnugget", count = 5, radius = 3, offset_x = -8, offset_z = -8},
+            {prefab = "hound", count = {3, 5}, radius = 10},
+        },
+    },
+    frog_apocalypse = {
         name = "FROG APOCALYPSE!",
+        announcement = "FROG APOCALYPSE! Ribbit ribbit DOOM!",
         category = EVENT_CATEGORY.CHALLENGE,
         rarity = EVENT_RARITY.UNCOMMON,
         trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "FROG APOCALYPSE! Ribbit ribbit DOOM!" end,
-        Execute = function(self, world, target)
-            Log("=== FROG APOCALYPSE ===")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            -- Give player an umbrella
-            SpawnNear("umbrella", x, z, 2)
-
-            -- Spawn LOTS of frogs
-            for i = 1, 50 do
-                SpawnNear("frog", x, z, 20)
-            end
-
-            -- Bonus frog legs as rewards scattered around
-            for i = 1, 10 do
-                SpawnNear("froglegs", x, z, 15)
-            end
-
-            Log("Spawned 50 frogs!")
-        end,
-    })
-
-    -- BEEFALO STAMPEDE (Challenge - Chaos)
-    mgr:RegisterEvent({
-        id = "beefalo_stampede",
-        name = "BEEFALO STAMPEDE!",
-        category = EVENT_CATEGORY.CHALLENGE,
-        rarity = EVENT_RARITY.UNCOMMON,
-        trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "BEEFALO STAMPEDE! The herd charges!" end,
-        Execute = function(self, world, target)
-            Log("=== BEEFALO STAMPEDE ===")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            -- Spawn beefalo in a line formation charging toward player
-            local chargeAngle = math.random() * 2 * math.pi
-            local startDist = 30
-
-            for i = 1, 15 do
-                local offsetAngle = chargeAngle + (math.random() - 0.5) * 0.5
-                local offsetDist = startDist + math.random() * 10
-                local spawnX = x + math.cos(offsetAngle) * offsetDist
-                local spawnZ = z + math.sin(offsetAngle) * offsetDist
-
-                local beefalo = GLOBAL.SpawnPrefab("beefalo")
-                if beefalo then
-                    beefalo.Transform:SetPosition(spawnX, 0, spawnZ)
-                    -- Make them angry!
-                    if beefalo.components.combat then
-                        beefalo.components.combat:SetTarget(player)
-                    end
-                end
-            end
-
-            -- Spawn beefalo wool and meat as bonus loot
-            for i = 1, 5 do SpawnNear("beefalowool", x, z, 8) end
-            for i = 1, 3 do SpawnNear("meat", x, z, 8) end
-
-            Log("Spawned 15 angry beefalo!")
-        end,
-    })
-
-    -- METEOR SHOWER (Challenge - Chaos)
-    mgr:RegisterEvent({
-        id = "meteor_shower",
-        name = "METEOR SHOWER!",
-        category = EVENT_CATEGORY.CHALLENGE,
-        rarity = EVENT_RARITY.RARE,
-        trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "METEOR SHOWER! Rocks fall from the sky!" end,
-        Execute = function(self, world, target)
-            Log("=== METEOR SHOWER ===")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            -- Spawn meteors over time
-            for i = 1, 20 do
-                world:DoTaskInTime(i * 0.5, function()
-                    local meteorX = x + (math.random() - 0.5) * 30
-                    local meteorZ = z + (math.random() - 0.5) * 30
-
-                    -- Spawn rock and gold nuggets (simulating meteor impact)
-                    SpawnNear("rocks", meteorX, meteorZ, 2)
-                    SpawnNear("rocks", meteorX, meteorZ, 2)
-                    if math.random() < 0.3 then
-                        SpawnNear("goldnugget", meteorX, meteorZ, 2)
-                    end
-                    if math.random() < 0.1 then
-                        SpawnNear("moonrocknugget", meteorX, meteorZ, 2)
-                    end
-                end)
-            end
-
-            -- Bonus: spawn some flint and nitre
-            for i = 1, 10 do SpawnNear("flint", x, z, 15) end
-            for i = 1, 5 do SpawnNear("nitre", x, z, 15) end
-
-            Log("Meteor shower started!")
-        end,
-    })
-
-    -- TREEGUARD ARMY (Challenge - Boss-like)
-    mgr:RegisterEvent({
-        id = "treeguard_army",
+        spawns = {
+            {prefab = "umbrella", count = 1, radius = 2},
+            {prefab = "frog", count = 50, radius = 20},
+            {prefab = "froglegs", count = 10, radius = 15},
+        },
+    },
+    treeguard_army = {
         name = "TREEGUARD ARMY!",
+        announcement = "TREEGUARD ARMY! The forest awakens in fury!",
         category = EVENT_CATEGORY.CHALLENGE,
         rarity = EVENT_RARITY.RARE,
         trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "TREEGUARD ARMY! The forest awakens in fury!" end,
-        Execute = function(self, world, target)
-            Log("=== TREEGUARD ARMY ===")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            -- Spawn 3 Treeguards
-            for i = 1, 3 do
-                SpawnNear("leif", x, z, 20)
-            end
-
-            -- But also spawn living logs as consolation prizes
-            for i = 1, 20 do
-                SpawnNear("livinglog", x, z, 25)
-            end
-
-            -- And some pinecones for replanting
-            for i = 1, 10 do SpawnNear("pinecone", x, z, 15) end
-
-            Log("Spawned 3 Treeguards and 20 living logs!")
-        end,
-    })
-
-    -- PENGULL INVASION (Challenge - Winter Chaos)
-    mgr:RegisterEvent({
-        id = "pengull_invasion",
+        spawns = {
+            {prefab = "leif", count = 3, radius = 20},
+            {prefab = "livinglog", count = 20, radius = 25},
+            {prefab = "pinecone", count = 10, radius = 15},
+        },
+    },
+    pengull_invasion = {
         name = "PENGULL INVASION!",
+        announcement = "PENGULL INVASION! Winter comes early!",
         category = EVENT_CATEGORY.CHALLENGE,
         rarity = EVENT_RARITY.UNCOMMON,
         trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "PENGULL INVASION! Winter comes early!" end,
-        Execute = function(self, world, target)
-            Log("=== PENGULL INVASION ===")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
+        spawns = {
+            {prefab = "penguin", count = 30, radius = 20},
+            {prefab = "ice", count = 15, radius = 15},
+            {prefab = "fish", count = 10, radius = 15},
+            {prefab = "winterhat", count = 1, radius = 3},
+            {prefab = "heatrock", count = 1, radius = 3},
+        },
+    },
 
-            -- Spawn 30 pengulls
-            for i = 1, 30 do
-                SpawnNear("penguin", x, z, 20)
-            end
-
-            -- Spawn ice and fish everywhere
-            for i = 1, 15 do SpawnNear("ice", x, z, 15) end
-            for i = 1, 10 do SpawnNear("fish", x, z, 15) end
-
-            -- Bonus: winter gear
-            SpawnNear("winterhat", x, z, 3)
-            SpawnNear("heatrock", x, z, 3)
-
-            Log("Spawned 30 pengulls!")
-        end,
-    })
-
-    -- =====================
-    -- BOSS EVENTS
-    -- =====================
-
-    -- Mini-Boss Warning (Boss)
-    mgr:RegisterEvent({
-        id = "miniboss_warning",
-        name = "Mini-Boss Incoming!",
-        category = EVENT_CATEGORY.BOSS,
-        rarity = EVENT_RARITY.RARE,
-        trigger = EVENT_TRIGGER.WEEKLY,
-        GetAnnouncement = function() return "DANGER! A creature stirs... Prepare! (60 seconds)" end,
-        Execute = function(self, world, target)
-            Log("=== MINI-BOSS WARNING ===")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            -- Drop preparation gear
-            SpawnNear("spear", x, z, 3)
-            SpawnNear("spear", x, z, 3)
-            SpawnNear("armorwood", x, z, 3)
-            SpawnNear("footballhat", x, z, 3)
-            SpawnNear("healingsalve", x, z, 3)
-            SpawnNear("healingsalve", x, z, 3)
-
-            -- Boss arrives after 60 seconds
-            world:DoTaskInTime(60, function()
-                Log("Mini-boss arrives!")
-                if GLOBAL.TheNet then GLOBAL.TheNet:Announce("THE CREATURE ARRIVES!") end
-                SpawnNear("leif", x, z, 15)
-            end)
-        end,
-    })
-
-    -- GIANT AWAKENS (Boss - Epic)
-    mgr:RegisterEvent({
-        id = "giant_awakens",
-        name = "A GIANT AWAKENS!",
-        category = EVENT_CATEGORY.BOSS,
-        rarity = EVENT_RARITY.LEGENDARY,
-        trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "SOMETHING MASSIVE STIRS... 60 SECONDS TO PREPARE!" end,
-        Execute = function(self, world, target)
-            Log("=== GIANT AWAKENS ===")
-            local player = target or GetRandomPlayer()
-            if not player then return end
-            local x, y, z = player.Transform:GetWorldPosition()
-
-            -- Drop LOTS of preparation gear
-            SpawnNear("hambat", x, z, 3)
-            SpawnNear("armorwood", x, z, 3)
-            SpawnNear("armorwood", x, z, 3)
-            SpawnNear("footballhat", x, z, 3)
-            SpawnNear("footballhat", x, z, 3)
-            for i = 1, 5 do SpawnNear("healingsalve", x, z, 4) end
-            for i = 1, 3 do SpawnNear("cookedmeat", x, z, 4) end
-
-            -- Giant arrives after 60 seconds
-            world:DoTaskInTime(60, function()
-                Log("GIANT ARRIVES!")
-                if GLOBAL.TheNet then GLOBAL.TheNet:Announce("THE GIANT IS HERE!") end
-                -- Random giant: Deerclops or Bearger
-                local giants = {"deerclops", "bearger"}
-                local giant = giants[math.random(#giants)]
-                SpawnNear(giant, x, z, 20)
-                Log("Spawned: " .. giant)
-            end)
-
-            -- Victory rewards after 3 minutes
-            world:DoTaskInTime(180, function()
-                Log("Giant battle rewards!")
-                if GLOBAL.TheNet then GLOBAL.TheNet:Announce("MASSIVE LOOT EXPLOSION!") end
-                -- 30+ items explosion
-                for i = 1, 10 do SpawnWithVelocity("goldnugget", x, z, 10) end
-                for i = 1, 5 do SpawnWithVelocity("redgem", x, z, 10) end
-                for i = 1, 5 do SpawnWithVelocity("bluegem", x, z, 10) end
-                for i = 1, 3 do SpawnWithVelocity("purplegem", x, z, 10) end
-                SpawnWithVelocity("yellowgem", x, z, 10)
-                SpawnWithVelocity("orangegem", x, z, 10)
-                SpawnWithVelocity("greengem", x, z, 10)
-                SpawnWithVelocity("thulecite", x, z, 10)
-                SpawnWithVelocity("thulecite", x, z, 10)
-                SpawnWithVelocity("thulecite", x, z, 10)
-            end)
-        end,
-    })
-
-    -- =====================
     -- SOCIAL EVENTS
-    -- =====================
-
-    -- Pig Party (Social)
-    mgr:RegisterEvent({
-        id = "pig_party",
+    pig_party = {
         name = "Pig Party!",
+        announcement = "FRIENDS: Pigs want to party!",
         category = EVENT_CATEGORY.SOCIAL,
         rarity = EVENT_RARITY.UNCOMMON,
         trigger = EVENT_TRIGGER.DAILY,
-        GetAnnouncement = function() return "FRIENDS: Pigs want to party!" end,
-        Execute = function(self, world, target)
-            Log("Executing PIG PARTY!")
-            for _, player in ipairs(GLOBAL.AllPlayers or {}) do
-                local x, y, z = player.Transform:GetWorldPosition()
-                for i = 1, 3 do SpawnNear("pigman", x, z, 5) end
-            end
-        end,
-    })
+        all_players = true,
+        spawns = {
+            {prefab = "pigman", count = 3, radius = 5},
+        },
+    },
+}
 
-    -- Treasure Hunt (Reward/Social)
-    mgr:RegisterEvent({
-        id = "treasure_hunt",
-        name = "Treasure Hunt!",
+-- Timed events: spawn items/loot with delays for dramatic effect
+local TIMED_EVENTS = {
+    loot_explosion = {
+        name = "LOOT EXPLOSION!",
+        announcement = "LOOT EXPLOSION! Items rain from the sky!",
         category = EVENT_CATEGORY.REWARD,
         rarity = EVENT_RARITY.UNCOMMON,
         trigger = EVENT_TRIGGER.MANUAL,
-        GetAnnouncement = function() return "TREASURE HUNT! A mystery box appeared somewhere nearby!" end,
-        Execute = function(self, world, target)
-            Log("Executing TREASURE HUNT!")
-            local player = target or GetRandomPlayer()
-            if not player then return end
+        delay_per_item = 0.1,
+        velocity = 8,
+        loot = {
+            "goldnugget", "goldnugget", "goldnugget", "goldnugget", "goldnugget",
+            "redgem", "bluegem", "purplegem",
+            "silk", "silk", "silk",
+            "rope", "rope",
+            "boards", "boards", "boards",
+            "cutgrass", "cutgrass", "cutgrass", "cutgrass",
+            "twigs", "twigs", "twigs", "twigs",
+            "log", "log", "log",
+            "meat", "meat",
+            "honey", "honey",
+        },
+    },
+    magic_storm = {
+        name = "MAGIC STORM!",
+        announcement = "MAGIC STORM! Arcane power descends!",
+        category = EVENT_CATEGORY.REWARD,
+        rarity = EVENT_RARITY.RARE,
+        trigger = EVENT_TRIGGER.MANUAL,
+        delay_per_item = 0.15,
+        velocity = 10,
+        loot = {
+            "redgem", "redgem", "redgem",
+            "bluegem", "bluegem", "bluegem",
+            "purplegem", "purplegem",
+            "yellowgem", "orangegem", "greengem",
+            "amulet", "blueamulet",
+        },
+    },
+    meteor_shower = {
+        name = "METEOR SHOWER!",
+        announcement = "METEOR SHOWER! Rocks fall from the sky!",
+        category = EVENT_CATEGORY.CHALLENGE,
+        rarity = EVENT_RARITY.RARE,
+        trigger = EVENT_TRIGGER.MANUAL,
+        meteor_count = 20,
+        meteor_delay = 0.5,
+        meteor_spread = 30,
+        initial_spawns = {
+            {prefab = "flint", count = 10, radius = 15},
+            {prefab = "nitre", count = 5, radius = 15},
+        },
+    },
+}
+
+-- Multi-wave events: complex events with multiple phases and announcements
+local WAVE_EVENTS = {
+    arena_challenge = {
+        name = "ARENA CHALLENGE!",
+        announcement = "ARENA CHALLENGE BEGINS! Survive 3 waves!",
+        category = EVENT_CATEGORY.CHALLENGE,
+        rarity = EVENT_RARITY.RARE,
+        trigger = EVENT_TRIGGER.MANUAL,
+        initial_gear = {"spear", "armorwood", "healingsalve"},
+        waves = {
+            {delay = 0, announce = "WAVE 1: SPIDERS!", spawns = {{prefab = "spider", count = 8, radius = 10}}},
+            {delay = 45, announce = "WAVE 2: HOUNDS APPROACH!",
+             rewards = {"spear", "armorwood", "goldnugget", "goldnugget", "goldnugget"},
+             spawns = {{prefab = "hound", count = 5, radius = 12}}},
+            {delay = 90, announce = "FINAL WAVE: THE GUARDIAN AWAKENS!",
+             rewards = {"goldnugget", "goldnugget", "goldnugget", "goldnugget", "goldnugget", "redgem", "bluegem"},
+             spawns = {{prefab = "leif", count = 1, radius = 15}}},
+            {delay = 150, announce = "ARENA COMPLETE! Claim your legendary rewards!",
+             rewards = {"purplegem", "purplegem", "greengem", "orangegem", "yellowgem", "thulecite", "armorruins"}},
+        },
+    },
+    shadow_invasion = {
+        name = "SHADOW INVASION!",
+        announcement = "SHADOW INVASION! The darkness hungers...",
+        category = EVENT_CATEGORY.CHALLENGE,
+        rarity = EVENT_RARITY.RARE,
+        trigger = EVENT_TRIGGER.MANUAL,
+        waves = {
+            {delay = 0, announce = "The shadows stir...", spawns = {{prefab = "crawlinghorror", count = 2, radius = 15}}},
+            {delay = 30, announce = "THE SHADOWS GROW STRONGER!", spawns = {{prefab = "crawlinghorror", count = 4, radius = 15}}},
+            {delay = 60, announce = "DARKNESS OVERWHELMS!", spawns = {{prefab = "crawlinghorror", count = 6, radius = 15}}},
+            {delay = 90, announce = "The shadows recede... rewards remain!",
+             rewards = {"nightmarefuel", "nightmarefuel", "nightmarefuel", "nightmarefuel", "nightmarefuel", "nightsword", "armor_sanity"}},
+        },
+    },
+    miniboss_warning = {
+        name = "Mini-Boss Incoming!",
+        announcement = "DANGER! A creature stirs... Prepare! (60 seconds)",
+        category = EVENT_CATEGORY.BOSS,
+        rarity = EVENT_RARITY.RARE,
+        trigger = EVENT_TRIGGER.WEEKLY,
+        initial_gear = {"spear", "spear", "armorwood", "footballhat", "healingsalve", "healingsalve"},
+        waves = {
+            {delay = 60, announce = "THE CREATURE ARRIVES!", spawns = {{prefab = "leif", count = 1, radius = 15}}},
+        },
+    },
+    giant_awakens = {
+        name = "A GIANT AWAKENS!",
+        announcement = "SOMETHING MASSIVE STIRS... 60 SECONDS TO PREPARE!",
+        category = EVENT_CATEGORY.BOSS,
+        rarity = EVENT_RARITY.LEGENDARY,
+        trigger = EVENT_TRIGGER.MANUAL,
+        initial_gear = {"hambat", "armorwood", "armorwood", "footballhat", "footballhat",
+                       "healingsalve", "healingsalve", "healingsalve", "healingsalve", "healingsalve",
+                       "cookedmeat", "cookedmeat", "cookedmeat"},
+        waves = {
+            {delay = 60, announce = "THE GIANT IS HERE!",
+             spawns = {{prefab = {"deerclops", "bearger"}, count = 1, radius = 20, random_pick = true}}},
+            {delay = 180, announce = "MASSIVE LOOT EXPLOSION!",
+             velocity_rewards = {"goldnugget", "goldnugget", "goldnugget", "goldnugget", "goldnugget",
+                                "goldnugget", "goldnugget", "goldnugget", "goldnugget", "goldnugget",
+                                "redgem", "redgem", "redgem", "redgem", "redgem",
+                                "bluegem", "bluegem", "bluegem", "bluegem", "bluegem",
+                                "purplegem", "purplegem", "purplegem",
+                                "yellowgem", "orangegem", "greengem",
+                                "thulecite", "thulecite", "thulecite"}},
+        },
+    },
+}
+
+-- Special events: require custom execute logic (can't be data-driven)
+local SPECIAL_EVENTS = {
+    beefalo_stampede = {
+        name = "BEEFALO STAMPEDE!",
+        announcement = "BEEFALO STAMPEDE! The herd charges!",
+        category = EVENT_CATEGORY.CHALLENGE,
+        rarity = EVENT_RARITY.UNCOMMON,
+        trigger = EVENT_TRIGGER.MANUAL,
+    },
+}
+
+-- =============================================================================
+-- GENERIC EVENT EXECUTORS
+-- =============================================================================
+
+-- Execute simple spawn-based event
+local function ExecuteSimpleEvent(data, world, target)
+    Log("Executing " .. data.name)
+
+    local players = data.all_players and (GLOBAL.AllPlayers or {}) or {target or GetRandomPlayer()}
+
+    for _, player in ipairs(players) do
+        if player then
             local x, y, z = player.Transform:GetWorldPosition()
-            local angle = math.random() * 2 * math.pi
-            local dist = 50 + math.random() * 30
-            SpawnNear("mysterybox", x + math.cos(angle) * dist, z + math.sin(angle) * dist, 5)
+
+            for _, spawn in ipairs(data.spawns or {}) do
+                local prefab = spawn.prefab
+                -- Handle random pick from list
+                if type(prefab) == "table" and spawn.random_pick then
+                    prefab = prefab[math.random(#prefab)]
+                end
+
+                -- Handle random count range
+                local count = spawn.count
+                if type(count) == "table" then
+                    count = math.random(count[1], count[2])
+                end
+
+                -- Calculate spawn position
+                local spawnX = x + (spawn.offset_x or 0)
+                local spawnZ = z + (spawn.offset_z or 0)
+
+                -- Adjust for distance spawns (like treasure hunt)
+                if spawn.distance then
+                    local angle = math.random() * 2 * math.pi
+                    spawnX = x + math.cos(angle) * spawn.distance
+                    spawnZ = z + math.sin(angle) * spawn.distance
+                end
+
+                -- Spawn the items
+                for i = 1, count do
+                    if spawn.velocity then
+                        SpawnWithVelocity(prefab, spawnX, spawnZ, spawn.velocity)
+                    else
+                        SpawnNear(prefab, spawnX, spawnZ, spawn.radius)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Execute timed loot drop event
+local function ExecuteTimedEvent(data, world, target)
+    Log("Executing " .. data.name)
+
+    local player = target or GetRandomPlayer()
+    if not player then return end
+    local x, y, z = player.Transform:GetWorldPosition()
+
+    -- Handle initial spawns (like meteor shower flint/nitre)
+    if data.initial_spawns then
+        for _, spawn in ipairs(data.initial_spawns) do
+            for i = 1, spawn.count do
+                SpawnNear(spawn.prefab, x, z, spawn.radius)
+            end
+        end
+    end
+
+    -- Handle meteor shower special case
+    if data.meteor_count then
+        for i = 1, data.meteor_count do
+            world:DoTaskInTime(i * data.meteor_delay, function()
+                local meteorX = x + (math.random() - 0.5) * data.meteor_spread
+                local meteorZ = z + (math.random() - 0.5) * data.meteor_spread
+                SpawnNear("rocks", meteorX, meteorZ, 2)
+                SpawnNear("rocks", meteorX, meteorZ, 2)
+                if math.random() < 0.3 then SpawnNear("goldnugget", meteorX, meteorZ, 2) end
+                if math.random() < 0.1 then SpawnNear("moonrocknugget", meteorX, meteorZ, 2) end
+            end)
+        end
+        return
+    end
+
+    -- Handle standard timed loot drops
+    for i, item in ipairs(data.loot or {}) do
+        world:DoTaskInTime(i * data.delay_per_item, function()
+            SpawnWithVelocity(item, x, z, data.velocity)
+        end)
+    end
+    Log(data.name .. ": Scheduled " .. #(data.loot or {}) .. " items")
+end
+
+-- Execute multi-wave event
+local function ExecuteWaveEvent(data, world, target)
+    Log("=== " .. data.name .. " STARTING ===")
+
+    local player = target or GetRandomPlayer()
+    if not player then return end
+    local x, y, z = player.Transform:GetWorldPosition()
+
+    -- Drop initial gear
+    if data.initial_gear then
+        for _, item in ipairs(data.initial_gear) do
+            SpawnNear(item, x, z, 3)
+        end
+    end
+
+    -- Schedule all waves
+    for _, wave in ipairs(data.waves or {}) do
+        world:DoTaskInTime(wave.delay, function()
+            Log("Wave at " .. wave.delay .. "s: " .. (wave.announce or ""))
+
+            -- Announce
+            if wave.announce and GLOBAL.TheNet then
+                GLOBAL.TheNet:Announce(wave.announce)
+            end
+
+            -- Spawn rewards
+            if wave.rewards then
+                for _, item in ipairs(wave.rewards) do
+                    SpawnNear(item, x, z, 4)
+                end
+            end
+
+            -- Spawn velocity rewards (like loot explosions)
+            if wave.velocity_rewards then
+                for _, item in ipairs(wave.velocity_rewards) do
+                    SpawnWithVelocity(item, x, z, 10)
+                end
+            end
+
+            -- Spawn enemies/entities
+            if wave.spawns then
+                for _, spawn in ipairs(wave.spawns) do
+                    local prefab = spawn.prefab
+                    if type(prefab) == "table" and spawn.random_pick then
+                        prefab = prefab[math.random(#prefab)]
+                    end
+                    for i = 1, spawn.count do
+                        SpawnNear(prefab, x, z, spawn.radius)
+                    end
+                end
+            end
+        end)
+    end
+end
+
+-- Execute beefalo stampede (special targeting logic)
+local function ExecuteBeefaloStampede(data, world, target)
+    Log("=== BEEFALO STAMPEDE ===")
+    local player = target or GetRandomPlayer()
+    if not player then return end
+    local x, y, z = player.Transform:GetWorldPosition()
+
+    local chargeAngle = math.random() * 2 * math.pi
+    local startDist = 30
+
+    for i = 1, 15 do
+        local offsetAngle = chargeAngle + (math.random() - 0.5) * 0.5
+        local offsetDist = startDist + math.random() * 10
+        local spawnX = x + math.cos(offsetAngle) * offsetDist
+        local spawnZ = z + math.sin(offsetAngle) * offsetDist
+
+        local beefalo = GLOBAL.SpawnPrefab("beefalo")
+        if beefalo then
+            beefalo.Transform:SetPosition(spawnX, 0, spawnZ)
+            if beefalo.components.combat then
+                beefalo.components.combat:SetTarget(player)
+            end
+        end
+    end
+
+    for i = 1, 5 do SpawnNear("beefalowool", x, z, 8) end
+    for i = 1, 3 do SpawnNear("meat", x, z, 8) end
+    Log("Spawned 15 angry beefalo!")
+end
+
+-- =============================================================================
+-- EVENT REGISTRATION
+-- =============================================================================
+
+local function RegisterAllEvents(mgr)
+    Log("Registering events...")
+
+    -- Register simple events
+    for id, data in pairs(SIMPLE_EVENTS) do
+        mgr:RegisterEvent({
+            id = id,
+            name = data.name,
+            category = data.category,
+            rarity = data.rarity,
+            trigger = data.trigger,
+            GetAnnouncement = function() return data.announcement end,
+            Execute = function(self, world, target)
+                ExecuteSimpleEvent(data, world, target)
+            end,
+        })
+    end
+
+    -- Register timed events
+    for id, data in pairs(TIMED_EVENTS) do
+        mgr:RegisterEvent({
+            id = id,
+            name = data.name,
+            category = data.category,
+            rarity = data.rarity,
+            trigger = data.trigger,
+            GetAnnouncement = function() return data.announcement end,
+            Execute = function(self, world, target)
+                ExecuteTimedEvent(data, world, target)
+            end,
+        })
+    end
+
+    -- Register wave events
+    for id, data in pairs(WAVE_EVENTS) do
+        mgr:RegisterEvent({
+            id = id,
+            name = data.name,
+            category = data.category,
+            rarity = data.rarity,
+            trigger = data.trigger,
+            GetAnnouncement = function() return data.announcement end,
+            Execute = function(self, world, target)
+                ExecuteWaveEvent(data, world, target)
+            end,
+        })
+    end
+
+    -- Register special events
+    mgr:RegisterEvent({
+        id = "beefalo_stampede",
+        name = SPECIAL_EVENTS.beefalo_stampede.name,
+        category = SPECIAL_EVENTS.beefalo_stampede.category,
+        rarity = SPECIAL_EVENTS.beefalo_stampede.rarity,
+        trigger = SPECIAL_EVENTS.beefalo_stampede.trigger,
+        GetAnnouncement = function() return SPECIAL_EVENTS.beefalo_stampede.announcement end,
+        Execute = function(self, world, target)
+            ExecuteBeefaloStampede(SPECIAL_EVENTS.beefalo_stampede, world, target)
         end,
     })
 
-    -- =====================
-    -- SUMMARY
-    -- =====================
+    -- Summary
     local eventCount = mgr:GetEventCount()
     Log("=== EVENT REGISTRATION COMPLETE ===")
     Log("Total events: " .. eventCount)
