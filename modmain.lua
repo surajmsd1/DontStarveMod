@@ -15,11 +15,12 @@ end
 
 Log("Mod loading...")
 
--- Register all box prefabs
+-- Register all prefabs
 PrefabFiles = {
     "mysterybox",
     "cursedbox",
     "goldenbox",
+    "lookouttower",
 }
 
 -- Global reference to event manager (set when world initializes)
@@ -962,6 +963,265 @@ AddPrefabPostInit("world", function(world)
     end
 end)
 
+-- =============================================================================
+-- SCOUT MODE DROP-IN ACTION
+-- =============================================================================
+
+-- Add custom action for dropping in from scout mode
+local SCOUT_DROP_ACTION = GLOBAL.Action({
+    priority = 10,
+    instant = true,
+})
+SCOUT_DROP_ACTION.id = "SCOUT_DROP"
+SCOUT_DROP_ACTION.str = "Drop In"
+SCOUT_DROP_ACTION.fn = function(act)
+    local doer = act.doer
+    if doer and doer:HasTag("scouting") then
+        -- Call the exit function from the tower
+        local tower = doer._scout_tower
+        if tower and tower:IsValid() then
+            -- Exit scout mode, staying at current position (not teleporting back)
+            -- We need to access the ExitScoutMode function - it's defined in the prefab
+            -- For now, we'll duplicate the exit logic here
+
+            -- Stop map reveal task
+            if doer._scout_reveal_task then
+                doer._scout_reveal_task:Cancel()
+                doer._scout_reveal_task = nil
+            end
+
+            -- Restore speed
+            doer.components.locomotor.runspeed = doer._scout_original_speed or 8
+            doer.components.locomotor.walkspeed = doer._scout_original_walkspeed or 4
+
+            -- Restore health
+            if doer.components.health then
+                doer.components.health:SetInvincible(false)
+            end
+
+            -- Restore hunger/sanity
+            if doer.components.hunger and doer._scout_hunger_rate then
+                doer.components.hunger.hungerrate = doer._scout_hunger_rate
+            end
+            if doer.components.sanity and doer._scout_sanity_mode then
+                doer.components.sanity.mode = doer._scout_sanity_mode
+            end
+
+            -- Restore combat
+            if doer.components.combat and doer._scout_combat_enabled then
+                doer.components.combat:SetAttackPeriod(0.5)
+            end
+
+            -- Restore visual
+            doer.AnimState:SetMultColour(1, 1, 1, 1)
+
+            -- Remove tags
+            doer:RemoveTag("scouting")
+            doer:RemoveTag("notarget")
+
+            -- CLIENT-SIDE: Remove overlay and restore camera
+            if doer._scout_overlay then
+                doer._scout_overlay:Kill()
+                doer._scout_overlay = nil
+            end
+            if doer._scout_original_zoom and GLOBAL.TheCamera and GLOBAL.TheCamera.SetDistance then
+                GLOBAL.TheCamera:SetDistance(doer._scout_original_zoom)
+                doer._scout_original_zoom = nil
+            end
+
+            -- Announce
+            if doer.components.talker then
+                doer.components.talker:Say("Dropped in!")
+            end
+
+            -- Play drop sound
+            doer.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_pulled")
+
+            -- Deactivate tower
+            tower.AnimState:PlayAnimation("idle_off", true)
+            tower.SoundEmitter:KillSound("loop")
+            tower.scout_active = false
+            tower.scout_player = nil
+
+            -- Clear stored values
+            doer._scout_original_speed = nil
+            doer._scout_original_walkspeed = nil
+            doer._scout_original_pos = nil
+            doer._scout_tower = nil
+            doer._scout_hunger_rate = nil
+            doer._scout_sanity_mode = nil
+            doer._scout_combat_enabled = nil
+
+            Log("Scout mode: Player dropped in at current location")
+            return true
+        end
+    end
+    return false
+end
+
+-- Register the action
+AddAction(SCOUT_DROP_ACTION)
+
+-- Add action handler to players
+AddComponentAction("SCENE", "locomotor", function(inst, doer, actions, right)
+    -- When scouting and pressing action key, offer drop-in option
+    if doer and doer:HasTag("scouting") and not right then
+        table.insert(actions, GLOBAL.ACTIONS.SCOUT_DROP)
+    end
+end)
+
+-- Also allow pressing space anywhere while scouting
+AddStategraphActionHandler("wilson", GLOBAL.ActionHandler(GLOBAL.ACTIONS.SCOUT_DROP, "doshortaction"))
+AddStategraphActionHandler("wilson_client", GLOBAL.ActionHandler(GLOBAL.ACTIONS.SCOUT_DROP, "doshortaction"))
+
+-- =============================================================================
+-- LOOKOUT TOWER SYSTEM (Auto-spawned, unlocked by chests)
+-- =============================================================================
+
+-- Track which branches have unlocked towers
+local UnlockedBranches = {}
+
+-- Get the branch/node ID at a position
+local function GetBranchAtPosition(x, z)
+    if GLOBAL.TheWorld and GLOBAL.TheWorld.Map then
+        local node_id = GLOBAL.TheWorld.Map:GetNodeIdAtPoint(x, 0, z)
+        if node_id and GLOBAL.TheWorld.topology and GLOBAL.TheWorld.topology.ids then
+            local room_name = GLOBAL.TheWorld.topology.ids[node_id]
+            return node_id, room_name
+        end
+        return node_id, nil
+    end
+    return nil, nil
+end
+
+-- Unlock tower in a branch when chest is opened
+local function UnlockBranchTower(branch_id)
+    if branch_id and not UnlockedBranches[branch_id] then
+        UnlockedBranches[branch_id] = true
+        Log("Branch " .. tostring(branch_id) .. " tower UNLOCKED!")
+
+        -- Find and unlock the tower in this branch
+        local towers = GLOBAL.TheSim:FindEntities(0, 0, 0, 99999, {"lookouttower"})
+        for _, tower in ipairs(towers) do
+            if tower._branch_id == branch_id and tower.Unlock then
+                tower:Unlock()
+                GLOBAL.TheNet:Announce("A Lookout Tower has been unlocked!")
+                break
+            end
+        end
+    end
+end
+
+-- Called when any mystery box is opened - unlock the branch tower
+local function OnChestOpened(player)
+    if player then
+        local x, y, z = player.Transform:GetWorldPosition()
+        local branch_id, room_name = GetBranchAtPosition(x, z)
+        Log("Chest opened in branch: " .. tostring(branch_id) .. " (" .. tostring(room_name) .. ")")
+        if branch_id then
+            UnlockBranchTower(branch_id)
+        end
+    end
+end
+
+-- Make this function accessible to prefabs
+_G.MysteryBoxOnChestOpened = OnChestOpened
+GLOBAL.MysteryBoxOnChestOpened = OnChestOpened
+
+-- Check if a branch tower is unlocked
+local function IsBranchUnlocked(branch_id)
+    return UnlockedBranches[branch_id] == true
+end
+
+_G.MysteryBoxIsBranchUnlocked = IsBranchUnlocked
+GLOBAL.MysteryBoxIsBranchUnlocked = IsBranchUnlocked
+
+-- =============================================================================
+-- AUTO-SPAWN TOWERS AT BRANCH ENTRANCES
+-- =============================================================================
+
+local function SpawnBranchTowers(world)
+    if not world.ismastersim then return end
+
+    Log("Spawning Lookout Towers at branch entrances...")
+
+    local topology = GLOBAL.TheWorld.topology
+    if not topology or not topology.nodes then
+        Log("WARNING: No topology data available for tower spawning")
+        return
+    end
+
+    -- Find nodes that are "entrance" points to branches
+    -- Branches are typically rooms connected to fewer other rooms (peninsulas)
+    -- For now, spawn one tower per distinct room type in the first node of each type
+
+    local spawned_rooms = {}
+    local tower_count = 0
+
+    for i, node in ipairs(topology.nodes) do
+        local room_name = topology.ids and topology.ids[i]
+
+        -- Skip if we already spawned in this room type or if it's a common area
+        if room_name and not spawned_rooms[room_name] then
+            -- Skip very common/central areas
+            local skip_rooms = {
+                "Clearing", "Forest", "Grasslands", "Savanna",
+                "START", "BeefalowPlains", "Marsh"
+            }
+            local should_skip = false
+            for _, skip in ipairs(skip_rooms) do
+                if string.find(room_name, skip) then
+                    should_skip = true
+                    break
+                end
+            end
+
+            if not should_skip and node.cent then
+                -- Spawn tower at node center
+                local x, z = node.cent[1], node.cent[2]
+
+                -- Find valid ground position
+                local spawn_x, spawn_z = x, z
+                if GLOBAL.TheWorld.Map:IsAboveGroundAtPoint(x, 0, z) then
+                    local tower = GLOBAL.SpawnPrefab("lookouttower")
+                    if tower then
+                        tower.Transform:SetPosition(spawn_x, 0, spawn_z)
+                        tower._branch_id = i  -- Store which branch this tower is for
+                        tower_count = tower_count + 1
+                        spawned_rooms[room_name] = true
+                        LogVerbose("Spawned tower at " .. room_name .. " (" .. spawn_x .. ", " .. spawn_z .. ")")
+                    end
+                end
+            end
+        end
+    end
+
+    Log("Spawned " .. tower_count .. " Lookout Towers across the map")
+end
+
+-- Hook into world initialization to spawn towers
+AddPrefabPostInit("forest", function(world)
+    if world.ismastersim then
+        -- Delay tower spawning until world is fully loaded
+        world:DoTaskInTime(2, function()
+            SpawnBranchTowers(world)
+        end)
+    end
+end)
+
+-- =============================================================================
+-- LOOKOUT TOWER CRAFTING RECIPE (Alternative to finding spawned towers)
+-- =============================================================================
+
+local tower_recipe = GLOBAL.Recipe(
+    "lookouttower",
+    {GLOBAL.Ingredient("boards", 4), GLOBAL.Ingredient("goldnugget", 2), GLOBAL.Ingredient("rope", 2)},
+    GLOBAL.RECIPETABS.TOWN,
+    GLOBAL.TECH.SCIENCE_ONE
+)
+tower_recipe.atlas = "images/inventoryimages.xml"
+
 -- Log successful initialization
 Log("Mod initialized successfully!")
 Log("DnD Gamemaster mode enabled - daily and weekly events active!")
+Log("Lookout Tower feature enabled!")

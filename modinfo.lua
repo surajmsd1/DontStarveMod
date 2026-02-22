@@ -2,9 +2,9 @@
 -- A placeable box that rewards players with random items when activated
 
 name = "Mystery Box"
-description = "DnD Gamemaster style mod! Daily events, epic challenges, and mystery boxes. Cursed boxes spawn enemies, Golden boxes rain loot. Features Arena Challenge, Shadow Invasion, Giant Awakens, and more!"
+description = "DnD Gamemaster style mod! Daily events, epic challenges, and mystery boxes. NEW: Lookout Tower for scout mode - explore the map at 50x speed! Cursed boxes spawn enemies, Golden boxes rain loot. Features Arena Challenge, Shadow Invasion, Giant Awakens, and more!"
 author = "DontStarveMod"
-version = "2.5.1"
+version = "2.6.0"
 
 -- Don't Starve Together compatibility
 api_version = 10
