@@ -131,3 +131,4 @@ TheWorld:PushEvent("ms_setphase", "day")
 - [events.md](events.md) - Event system, listeners
 - [networking.md](networking.md) - Multiplayer, client/server
 - [prefab-list.md](prefab-list.md) - All spawnable prefab names
+- [widgets.md](widgets.md) - UI widgets, HUD elements, custom panels, net variables

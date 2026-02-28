@@ -994,7 +994,380 @@ local tower_recipe = GLOBAL.Recipe(
 )
 tower_recipe.atlas = "images/inventoryimages.xml"
 
+-- =============================================================================
+-- MISSION TRACKING SYSTEM
+-- =============================================================================
+
+local MissionTracker = require "systems/mission_tracker"
+local MissionDefs = require "systems/mission_defs"
+
+-- Server-side mission tracker (set during world init)
+local MissionTrackerInstance = nil
+
+-- Sync interval for pushing mission data to clients
+local MISSION_SYNC_INTERVAL = 1.0
+
+-- =============================================================================
+-- MISSION DATA SERIALIZATION (compact string format, no json dependency)
+-- =============================================================================
+
+-- Encode mission snapshot to compact string
+-- Delimiters (each level uses a unique separator):
+--   Missions separated by "\n"
+--   Mission fields separated by "\t"
+--   Objectives separated by ";"
+--   Objective fields separated by ","
+--   Recent section separated from missions by "\n\n"
+local function EncodeMissions(snapshot, recent)
+    local parts = {}
+
+    for _, m in ipairs(snapshot or {}) do
+        local objParts = {}
+        for _, obj in ipairs(m.objectives or {}) do
+            table.insert(objParts, table.concat({
+                (obj.label or ""):gsub(",", " "),  -- sanitize
+                obj.type or "",
+                tostring(obj.current or 0),
+                tostring(obj.required or 1),
+                obj.completed and "1" or "0",
+            }, ","))
+        end
+
+        local bossStr = ""
+        if m.boss_health then
+            bossStr = tostring(math.floor(m.boss_health.current or 0))
+                .. ":" .. tostring(math.floor(m.boss_health.max or 0))
+        end
+
+        table.insert(parts, table.concat({
+            m.id or "",
+            (m.name or ""):gsub("\t", " "),  -- sanitize
+            m.category or "",
+            tostring(math.floor(m.time_remaining or -1)),
+            bossStr,
+            table.concat(objParts, ";"),
+        }, "\t"))
+    end
+
+    -- Recent finished missions
+    local recentParts = {}
+    for _, r in ipairs(recent or {}) do
+        table.insert(recentParts, table.concat({
+            r.id or "",
+            (r.name or ""):gsub("\t", " "),
+            r.state or "",
+        }, "\t"))
+    end
+
+    return table.concat(parts, "\n") .. "\n\n" .. table.concat(recentParts, "\n")
+end
+
+-- Decode compact mission string back into table structure (client-side)
+local function DecodeMissions(dataStr)
+    if not dataStr or dataStr == "" then
+        return {}, {}
+    end
+
+    -- Split main missions from recent section
+    local mainPart, recentPart = dataStr:match("^(.-)\n\n(.*)$")
+    if not mainPart then
+        mainPart = dataStr
+        recentPart = ""
+    end
+
+    -- Split string by delimiter, preserving empty fields
+    local function splitStr(str, delim)
+        local result = {}
+        local pattern = "([^" .. delim .. "]*)" .. delim .. "?"
+        local lastEnd = 1
+        for part, pos in str:gmatch("([^" .. delim .. "]*)" .. delim .. "()") do
+            table.insert(result, part)
+            lastEnd = pos
+        end
+        -- Get the last field
+        table.insert(result, str:sub(lastEnd))
+        return result
+    end
+
+    local missions = {}
+    if mainPart ~= "" then
+        for missionStr in mainPart:gmatch("[^\n]+") do
+            local fields = splitStr(missionStr, "\t")
+
+            -- fields: 1=id, 2=name, 3=category, 4=time_rem, 5=boss, 6=objectives
+            if #fields >= 5 then
+                local mission = {
+                    id = fields[1],
+                    name = fields[2],
+                    category = fields[3],
+                    objectives = {},
+                }
+
+                local timeRem = tonumber(fields[4])
+                if timeRem and timeRem >= 0 then
+                    mission.time_remaining = timeRem
+                end
+
+                -- Boss health
+                if fields[5] ~= "" then
+                    local bCur, bMax = fields[5]:match("^(%d+):(%d+)$")
+                    if bCur and bMax then
+                        mission.boss_health = {
+                            current = tonumber(bCur),
+                            max = tonumber(bMax),
+                        }
+                    end
+                end
+
+                -- Objectives (field 6, separated by ";")
+                if fields[6] and fields[6] ~= "" then
+                    for objData in fields[6]:gmatch("[^;]+") do
+                        local objFields = {}
+                        for f in objData:gmatch("[^,]+") do
+                            table.insert(objFields, f)
+                        end
+                        if #objFields >= 5 then
+                            table.insert(mission.objectives, {
+                                label = objFields[1],
+                                type = objFields[2],
+                                current = tonumber(objFields[3]) or 0,
+                                required = tonumber(objFields[4]) or 1,
+                                completed = objFields[5] == "1",
+                            })
+                        end
+                    end
+                end
+
+                table.insert(missions, mission)
+            end
+        end
+    end
+
+    -- Decode recent
+    local recent = {}
+    if recentPart and recentPart ~= "" then
+        for rStr in recentPart:gmatch("[^\n]+") do
+            local rFields = {}
+            for f in rStr:gmatch("[^\t]+") do
+                table.insert(rFields, f)
+            end
+            if #rFields >= 3 then
+                table.insert(recent, {
+                    id = rFields[1],
+                    name = rFields[2],
+                    state = rFields[3],
+                })
+            end
+        end
+    end
+
+    return missions, recent
+end
+
+-- RPC: Client requests full mission data refresh
+AddModRPCHandler("mysterybox", "request_missions", function(player)
+    if not MissionTrackerInstance then return end
+    local snapshot = MissionTrackerInstance:GetMissionSnapshot()
+    local recent = MissionTrackerInstance:GetRecentFinished()
+    local data = EncodeMissions(snapshot, recent)
+    SendModRPCToClient(GetClientModRPC("mysterybox", "mission_sync"), player.userid, data)
+end)
+
+-- Client RPC: Receive mission data from server
+AddClientModRPCHandler("mysterybox", "mission_sync", function(data_str)
+    local ok, result1, result2 = GLOBAL.pcall(DecodeMissions, data_str)
+    if ok then
+        local player = GLOBAL.ThePlayer
+        if player and player._mission_panel then
+            player._mission_panel:SetMissions(result1, result2)
+        end
+    else
+        LogVerbose("ERROR decoding mission data: " .. tostring(result1))
+    end
+end)
+
+-- Server: Broadcast mission data to all clients
+local function BroadcastMissionData()
+    if not MissionTrackerInstance then return end
+    local snapshot = MissionTrackerInstance:GetMissionSnapshot()
+    local recent = MissionTrackerInstance:GetRecentFinished()
+    local data = EncodeMissions(snapshot, recent)
+    for _, player in ipairs(GLOBAL.AllPlayers or {}) do
+        if player and player:IsValid() then
+            SendModRPCToClient(GetClientModRPC("mysterybox", "mission_sync"), player.userid, data)
+        end
+    end
+end
+
+-- Initialize mission tracker when world loads (server-side)
+local function InitMissionTracker(world)
+    if not world.ismastersim then return end
+
+    MissionTrackerInstance = MissionTracker.Create(world)
+
+    -- When tracker data changes, broadcast to all clients
+    MissionTrackerInstance:OnUpdate(function(mission_id, mission_data)
+        BroadcastMissionData()
+    end)
+
+    -- Track item pickups across all players
+    local function SetupPlayerTracking(player)
+        player:ListenForEvent("itemget", function(player, data)
+            if MissionTrackerInstance and data and data.item then
+                MissionTrackerInstance:OnItemCollected(data.item.prefab, 1)
+            end
+        end)
+
+        -- Track kills
+        player:ListenForEvent("killed", function(player, data)
+            if MissionTrackerInstance and data and data.victim then
+                MissionTrackerInstance:OnEntityKilled(data.victim.prefab)
+            end
+        end)
+
+        -- Track structure building
+        player:ListenForEvent("buildstructure", function(player, data)
+            if MissionTrackerInstance and data and data.item then
+                MissionTrackerInstance:OnStructureBuilt(data.item.prefab)
+            end
+        end)
+    end
+
+    -- Set up tracking for existing players
+    for _, player in ipairs(GLOBAL.AllPlayers or {}) do
+        SetupPlayerTracking(player)
+    end
+
+    -- Set up tracking for new players who join
+    world:ListenForEvent("ms_playerjoined", function(world, player)
+        if player then
+            SetupPlayerTracking(player)
+            -- Send current mission state to new player
+            world:DoTaskInTime(2, function()
+                if player:IsValid() then
+                    BroadcastMissionData()
+                end
+            end)
+        end
+    end)
+
+    -- Periodic sync to keep timers and boss health updated
+    world:DoPeriodicTask(MISSION_SYNC_INTERVAL, function()
+        BroadcastMissionData()
+    end)
+
+    -- Store globally for console/event access
+    _G.MysteryBoxMissionTracker = MissionTrackerInstance
+    GLOBAL.MysteryBoxMissionTracker = MissionTrackerInstance
+
+    Log("Mission Tracker initialized!")
+end
+
+-- Start a mission by definition ID (convenience function for events/console)
+local function StartMission(def_or_id)
+    if not MissionTrackerInstance then
+        Log("ERROR: MissionTracker not initialized")
+        return false
+    end
+
+    local def = def_or_id
+    if type(def_or_id) == "string" then
+        def = MissionDefs[def_or_id]
+        if not def then
+            Log("ERROR: Unknown mission: " .. def_or_id)
+            return false
+        end
+    end
+
+    local success = MissionTrackerInstance:StartMission(def)
+
+    -- Handle boss spawn on start
+    if success and def.on_start_spawn then
+        local spawn = def.on_start_spawn
+        local player = GetRandomPlayer()
+        if player then
+            local x, y, z = player.Transform:GetWorldPosition()
+            local count = spawn.count or 1
+
+            if spawn.announce and GLOBAL.TheNet then
+                GLOBAL.TheNet:Announce(spawn.announce)
+            end
+
+            for i = 1, count do
+                local boss = GLOBAL.SpawnPrefab(spawn.prefab)
+                if boss then
+                    local angle = math.random() * 2 * math.pi
+                    local dist = 15 + math.random() * 10
+                    boss.Transform:SetPosition(
+                        x + math.cos(angle) * dist, 0,
+                        z + math.sin(angle) * dist
+                    )
+                    -- Track first boss entity for UI health bar
+                    if i == 1 then
+                        MissionTrackerInstance:SetBossEntity(def.id, boss)
+                    end
+                    Log("Spawned boss: " .. spawn.prefab)
+                end
+            end
+        end
+    end
+
+    return success
+end
+
+-- Start a random mission (optionally filtered by category)
+local function StartRandomMission(category)
+    local def = MissionDefs.GetRandom(category)
+    if def then
+        return StartMission(def)
+    end
+    Log("No missions available" .. (category and (" for category: " .. category) or ""))
+    return false
+end
+
+-- Expose mission functions globally
+_G.MysteryBoxStartMission = StartMission
+GLOBAL.MysteryBoxStartMission = StartMission
+_G.MysteryBoxStartRandomMission = StartRandomMission
+GLOBAL.MysteryBoxStartRandomMission = StartRandomMission
+
+-- Hook mission tracker into world initialization
+AddPrefabPostInit("world", function(world)
+    GLOBAL.pcall(function()
+        if GLOBAL.TheWorld.ismastersim then
+            world:DoTaskInTime(1, function()
+                InitMissionTracker(world)
+            end)
+        end
+    end)
+end)
+
+-- =============================================================================
+-- MISSION PANEL UI (Client-side HUD widget)
+-- =============================================================================
+
+-- Attach mission panel to each player's HUD
+AddClassPostConstruct("widgets/controls", function(self)
+    -- Wait for owner to be set
+    self.inst:DoTaskInTime(0, function()
+        local owner = self.owner
+        if not owner then return end
+
+        local MissionPanel = require "widgets/missionpanel"
+        local panel = self:AddChild(MissionPanel(owner))
+        owner._mission_panel = panel
+
+        -- Request initial mission data from server
+        self.inst:DoTaskInTime(1, function()
+            SendModRPCToServer(GetModRPC("mysterybox", "request_missions"))
+        end)
+
+        Log("Mission panel attached to HUD")
+    end)
+end)
+
 -- Log successful initialization
 Log("Mod initialized successfully!")
 Log("DnD Gamemaster mode enabled - daily and weekly events active!")
 Log("Lookout Tower feature enabled!")
+Log("Mission Tracking UI enabled!")
