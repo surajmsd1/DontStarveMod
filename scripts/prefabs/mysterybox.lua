@@ -3,79 +3,43 @@
 
 require "prefabutil"
 
-local assets = {
-    Asset("ANIM", "anim/treasure_chest.zip"),
-}
-
--- Loot table with weighted rewards
-local LOOT_TABLE = {
-    -- Common items (weight 10)
-    {"log", 10},
-    {"rocks", 10},
-    {"cutgrass", 10},
-    {"twigs", 10},
-    {"flint", 10},
-    -- Uncommon items (weight 5)
-    {"goldnugget", 5},
-    {"silk", 5},
-    {"rope", 5},
-    {"boards", 5},
-    {"cutstone", 5},
-    -- Rare items (weight 2)
-    {"gears", 2},
-    {"redgem", 2},
-    {"bluegem", 2},
-    {"livinglog", 2},
-    {"purplegem", 2},
-    -- Very rare items (weight 1)
-    {"greengem", 1},
-    {"orangegem", 1},
-    {"yellowgem", 1},
-    {"thulecite", 1},
-}
-
-local function GetTotalWeight()
-    local total = 0
-    for _, entry in ipairs(LOOT_TABLE) do
-        total = total + entry[2]
-    end
-    return total
+-- Try to load the LootSystem (safe require)
+local LootSystem = nil
+local ok, result = pcall(function() return require "core/loot_system" end)
+if ok then
+    LootSystem = result
+    print("[Mystery Box] LootSystem loaded")
+else
+    print("[Mystery Box] LootSystem not found, using fallback")
 end
 
-local function SelectRandomReward()
-    local total_weight = GetTotalWeight()
-    local roll = math.random() * total_weight
-    local cumulative = 0
-    for _, entry in ipairs(LOOT_TABLE) do
-        cumulative = cumulative + entry[2]
-        if roll <= cumulative then
-            return entry[1]
-        end
-    end
-    return "log"
-end
+local assets = {}
 
 local function OnActivate(inst, doer)
-    if inst.opened then
+    -- Use network-synced state
+    if inst._opened:value() then
         return false
     end
-    inst.opened = true
+    inst._opened:set(true)
     inst.AnimState:PlayAnimation("open")
     inst.SoundEmitter:PlaySound("dontstarve/common/chest_open")
 
-    local reward_prefab = SelectRandomReward()
-    local reward = SpawnPrefab(reward_prefab)
-    if reward then
-        local x, y, z = inst.Transform:GetWorldPosition()
-        reward.Transform:SetPosition(x, y + 0.5, z)
-        if reward.Physics then
-            local angle = math.random() * 2 * math.pi
-            local speed = 2 + math.random() * 2
-            reward.Physics:SetVel(speed * math.cos(angle), 5, speed * math.sin(angle))
-        end
-        print("[Mystery Box] Player " .. (doer.name or "unknown") .. " received: " .. reward_prefab)
+    local x, y, z = inst.Transform:GetWorldPosition()
+
+    -- Use LootSystem if available, otherwise fallback
+    if LootSystem then
+        LootSystem.DropPack("starter_kit", x, y, z, {radius = 3, velocity = 5})
         if doer and doer.components and doer.components.talker then
-            doer.components.talker:Say("I got " .. reward_prefab .. "!")
+            doer.components.talker:Say("Loot!")
+        end
+    else
+        -- Fallback: spawn a single goldnugget
+        local reward = SpawnPrefab("goldnugget")
+        if reward then
+            reward.Transform:SetPosition(x, y + 0.5, z)
+            if reward.Physics then
+                reward.Physics:SetVel(0, 5, 0)
+            end
         end
     end
 
@@ -100,13 +64,24 @@ local function fn()
     inst.AnimState:PlayAnimation("closed")
 
     inst:AddTag("structure")
+    inst:AddTag("mysterybox")
+
+    -- Network sync for opened state
+    inst._opened = net_bool(inst.GUID, "mysterybox.opened", "openeddirty")
 
     inst.entity:SetPristine()
     if not TheWorld.ismastersim then
+        -- CLIENT: animate when opened
+        inst:ListenForEvent("openeddirty", function()
+            if inst._opened:value() then
+                inst.AnimState:PlayAnimation("open")
+            end
+        end)
         return inst
     end
 
-    inst.opened = false
+    -- SERVER: initialize state
+    inst._opened:set(false)
 
     inst:AddComponent("inspectable")
 
