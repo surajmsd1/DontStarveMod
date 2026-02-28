@@ -828,6 +828,71 @@ local function OnChestOpened(player)
     end
 end
 
+-- Get list of all unlocked towers for teleportation UI
+local function GetUnlockedTowers(currentTower)
+    local towers = {}
+    for branch_id, tower in pairs(TowerCache) do
+        if tower and tower:IsValid() and not tower._net_is_locked:value() then
+            local room_name = nil
+            if GLOBAL.TheWorld.topology and GLOBAL.TheWorld.topology.ids then
+                room_name = GLOBAL.TheWorld.topology.ids[branch_id]
+            end
+            local x, y, z = tower.Transform:GetWorldPosition()
+            table.insert(towers, {
+                tower = tower,
+                branch_id = branch_id,
+                room_name = room_name,
+                position = {x = x, y = y, z = z},
+                isCurrentTower = (currentTower and currentTower == tower),
+            })
+        end
+    end
+    return towers
+end
+
+-- Teleport player to a tower
+local function TeleportToTower(player, targetTower)
+    if not player or not player:IsValid() then return false end
+    if not targetTower or not targetTower:IsValid() then return false end
+
+    local x, y, z = targetTower.Transform:GetWorldPosition()
+
+    -- Play teleport effects
+    if player.SoundEmitter then
+        player.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_pulled")
+    end
+
+    -- Spawn visual effect at origin
+    local fx = GLOBAL.SpawnPrefab("collapse_small")
+    if fx then
+        local px, py, pz = player.Transform:GetWorldPosition()
+        fx.Transform:SetPosition(px, py, pz)
+    end
+
+    -- Teleport
+    player.Transform:SetPosition(x + 1, 0, z + 1)  -- Offset slightly from tower
+
+    -- Spawn visual effect at destination
+    local fx2 = GLOBAL.SpawnPrefab("collapse_small")
+    if fx2 then
+        fx2.Transform:SetPosition(x + 1, 0, z + 1)
+    end
+
+    -- Play arrival sound
+    if player.SoundEmitter then
+        player.SoundEmitter:PlaySound("dontstarve/common/teleportato/teleportato_ready")
+    end
+
+    Log("Teleported " .. tostring(player) .. " to tower at branch " .. tostring(targetTower._branch_id))
+    return true
+end
+
+-- Expose functions globally for tower prefab to use
+_G.MysteryBoxGetUnlockedTowers = GetUnlockedTowers
+_G.MysteryBoxTeleportToTower = TeleportToTower
+GLOBAL.MysteryBoxGetUnlockedTowers = GetUnlockedTowers
+GLOBAL.MysteryBoxTeleportToTower = TeleportToTower
+
 -- Make this function accessible to prefabs
 _G.MysteryBoxOnChestOpened = OnChestOpened
 GLOBAL.MysteryBoxOnChestOpened = OnChestOpened

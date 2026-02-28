@@ -22,7 +22,8 @@ end
 return BoxFactory.Create({
     name = "goldenbox",
     tag = "goldenbox",
-    tint = {1, 0.9, 0.3, 1},  -- Golden
+    visual = "gift",  -- Present/gift box style
+    tint = {1, 0.85, 0.4, 1},  -- Golden tint
     boxType = "golden",
     openSound = "dontstarve/common/chest_open",
     onActivateCustom = OnActivateCustom,

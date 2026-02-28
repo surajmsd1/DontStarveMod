@@ -8,138 +8,343 @@ local LootSystem = {}
 -- =============================================================================
 
 LootSystem.PACKS = {
-    -- Basic starter supplies
+    -- ==========================================================================
+    -- STARTER/BASIC PACKS
+    -- ==========================================================================
+
     starter_kit = {
-        per_player = {"torch", "flint", "twigs"},
-        shared = {"log", "log", "rocks", "rocks"},
+        per_player = {"torch", "pickaxe", "axe"},
+        shared = {"flint", "flint", "twigs", "twigs", "log", "log"},
     },
 
-    -- Combat gear for fights
+    survival_basics = {
+        per_player = {"backpack", "torch"},
+        shared = {"rope", "rope", "cutgrass", "cutgrass", "twigs", "twigs"},
+    },
+
+    -- ==========================================================================
+    -- COMBAT PACKS
+    -- ==========================================================================
+
     combat_kit = {
-        per_player = {"spear", "armorwood", "healingsalve"},
-        shared = {"footballhat"},
+        per_player = {"spear", "armorwood", "healingsalve", "healingsalve"},
+        shared = {"footballhat", "hambat"},
     },
 
-    -- Food supplies
+    warrior_pack = {
+        per_player = {"hambat", "armorwood", "footballhat"},
+        shared = {"spear", "spear", "healingsalve", "healingsalve", "healingsalve"},
+        bonus = {
+            rolls = 1,
+            table = {
+                {"armorruins", 1},
+                {"ruins_bat", 1},
+                {"nightsword", 2},
+            },
+        },
+    },
+
+    tank_pack = {
+        per_player = {"armorwood", "armorwood", "footballhat", "healingsalve", "healingsalve"},
+        shared = {"marble", "marble", "marble"},
+    },
+
+    -- ==========================================================================
+    -- FOOD PACKS
+    -- ==========================================================================
+
     feast = {
         per_player = {"cookedmeat", "cookedmeat", "honey"},
         shared = {
-            "cookedfish", "cookedfish",
+            "cookedfish", "cookedfish", "cookedfish",
             "berries_cooked", "berries_cooked", "berries_cooked",
             "carrot_cooked", "carrot_cooked",
+            "dragonfruit_cooked",
         },
     },
 
-    -- Building materials
-    builders = {
-        per_player = {"rope", "boards"},
+    gourmet_feast = {
+        per_player = {"baconeggs", "honeynuggets"},
         shared = {
-            "log", "log", "log", "log", "log",
+            "bonestew", "bonestew",
+            "butterflymuffin", "butterflymuffin",
+            "taffy", "taffy",
+            "pumpkincookie",
+        },
+    },
+
+    winter_feast = {
+        per_player = {"hotchili", "meatballs"},
+        shared = {
+            "cookedmeat", "cookedmeat", "cookedmeat",
+            "honey", "honey",
+            "heatrock",
+        },
+    },
+
+    -- ==========================================================================
+    -- BUILDING/RESOURCE PACKS
+    -- ==========================================================================
+
+    builders = {
+        per_player = {"boards", "boards", "rope"},
+        shared = {
+            "log", "log", "log", "log", "log", "log", "log", "log",
             "rocks", "rocks", "rocks", "rocks", "rocks",
-            "goldnugget", "goldnugget", "goldnugget",
+            "goldnugget", "goldnugget", "goldnugget", "goldnugget",
+            "cutstone", "cutstone",
         },
     },
 
-    -- Magic/gem rewards
+    mega_resources = {
+        per_player = {"boards", "cutstone", "rope", "rope"},
+        shared = {
+            "log", "log", "log", "log", "log", "log", "log", "log", "log", "log",
+            "rocks", "rocks", "rocks", "rocks", "rocks", "rocks", "rocks", "rocks",
+            "goldnugget", "goldnugget", "goldnugget", "goldnugget", "goldnugget",
+            "nitre", "nitre", "nitre",
+            "marble", "marble",
+        },
+    },
+
+    -- ==========================================================================
+    -- MAGIC/ARCANE PACKS
+    -- ==========================================================================
+
     arcane = {
-        per_player = {"nightmarefuel"},
-        shared = {"redgem", "bluegem"},
-        bonus = {
-            rolls = 2,
-            table = {
-                {"purplegem", 5},
-                {"yellowgem", 2},
-                {"orangegem", 2},
-                {"greengem", 1},
-            },
-        },
-    },
-
-    -- Boss kill rewards
-    boss_loot = {
-        per_player = {"goldnugget", "goldnugget", "meat"},
-        shared = {"purplegem", "purplegem"},
-        bonus = {
-            rolls = 5,
-            table = {
-                {"goldnugget", 20},
-                {"redgem", 10},
-                {"bluegem", 10},
-                {"purplegem", 5},
-                {"yellowgem", 2},
-                {"orangegem", 2},
-                {"greengem", 1},
-                {"thulecite", 1},
-            },
-        },
-    },
-
-    -- Arena challenge rewards (scales with difficulty)
-    arena_wave_1 = {
-        per_player = {"healingsalve"},
-        shared = {"goldnugget", "goldnugget"},
-    },
-    arena_wave_2 = {
-        per_player = {"armorwood", "healingsalve"},
-        shared = {"goldnugget", "goldnugget", "goldnugget", "redgem"},
-    },
-    arena_final = {
-        per_player = {"purplegem", "goldnugget", "goldnugget"},
-        shared = {"greengem", "orangegem", "yellowgem", "thulecite"},
+        per_player = {"nightmarefuel", "nightmarefuel"},
+        shared = {"redgem", "redgem", "bluegem", "bluegem"},
         bonus = {
             rolls = 3,
             table = {
-                {"armorruins", 2},
-                {"ruinshat", 2},
+                {"purplegem", 8},
+                {"yellowgem", 3},
+                {"orangegem", 3},
+                {"greengem", 2},
+                {"opalstaff", 1},
+            },
+        },
+    },
+
+    shadow_magic = {
+        per_player = {"nightmarefuel", "nightmarefuel", "nightmarefuel"},
+        shared = {"purplegem", "purplegem"},
+        bonus = {
+            rolls = 2,
+            table = {
+                {"nightsword", 3},
+                {"armor_sanity", 3},
+                {"onemanband", 2},
+                {"shadowheart", 1},
+            },
+        },
+    },
+
+    gem_jackpot = {
+        shared = {"redgem", "redgem", "bluegem", "bluegem", "purplegem"},
+        bonus = {
+            rolls = 6,
+            table = {
+                {"redgem", 15},
+                {"bluegem", 15},
+                {"purplegem", 10},
+                {"yellowgem", 5},
+                {"orangegem", 5},
+                {"greengem", 3},
+                {"opalpreciousgem", 1},
+            },
+        },
+    },
+
+    -- ==========================================================================
+    -- BOSS/ENDGAME PACKS
+    -- ==========================================================================
+
+    boss_loot = {
+        per_player = {"goldnugget", "goldnugget", "goldnugget", "meat", "meat"},
+        shared = {"purplegem", "purplegem", "thulecite"},
+        bonus = {
+            rolls = 6,
+            table = {
+                {"goldnugget", 20},
+                {"redgem", 12},
+                {"bluegem", 12},
+                {"purplegem", 8},
+                {"yellowgem", 4},
+                {"orangegem", 4},
+                {"greengem", 3},
+                {"thulecite", 3},
+                {"gears", 5},
+            },
+        },
+    },
+
+    legendary_cache = {
+        per_player = {"thulecite", "purplegem"},
+        shared = {"orangegem", "yellowgem", "greengem"},
+        bonus = {
+            rolls = 4,
+            table = {
+                {"armorruins", 3},
+                {"ruinshat", 3},
+                {"ruins_bat", 2},
+                {"orangestaff", 2},
+                {"greenstaff", 2},
+                {"yellowstaff", 1},
+                {"opalstaff", 1},
+            },
+        },
+    },
+
+    -- ==========================================================================
+    -- ARENA WAVE REWARDS
+    -- ==========================================================================
+
+    arena_wave_1 = {
+        per_player = {"healingsalve", "healingsalve"},
+        shared = {"goldnugget", "goldnugget", "goldnugget", "spear"},
+    },
+
+    arena_wave_2 = {
+        per_player = {"armorwood", "healingsalve", "healingsalve"},
+        shared = {"goldnugget", "goldnugget", "goldnugget", "goldnugget", "redgem", "hambat"},
+    },
+
+    arena_wave_3 = {
+        per_player = {"footballhat", "healingsalve", "healingsalve", "healingsalve"},
+        shared = {"goldnugget", "goldnugget", "goldnugget", "goldnugget", "goldnugget", "bluegem", "redgem"},
+    },
+
+    arena_final = {
+        per_player = {"purplegem", "goldnugget", "goldnugget", "goldnugget"},
+        shared = {"greengem", "orangegem", "yellowgem", "thulecite", "thulecite"},
+        bonus = {
+            rolls = 3,
+            table = {
+                {"armorruins", 3},
+                {"ruinshat", 3},
+                {"ruins_bat", 2},
                 {"orangestaff", 1},
                 {"greenstaff", 1},
             },
         },
     },
 
-    -- Mystery box random loot (replaces old single-item system)
-    mystery_common = {
-        shared = {},
-        bonus = {
-            rolls = 3,
-            table = {
-                {"log", 15}, {"rocks", 15}, {"cutgrass", 15}, {"twigs", 15}, {"flint", 15},
-                {"goldnugget", 8}, {"silk", 8}, {"rope", 8},
-                {"boards", 5}, {"cutstone", 5},
-                {"gears", 2}, {"redgem", 2}, {"bluegem", 2},
-            },
-        },
-    },
+    -- ==========================================================================
+    -- BOX-SPECIFIC PACKS
+    -- ==========================================================================
 
-    -- Golden box loot (better)
-    golden_box = {
-        shared = {"goldnugget", "goldnugget", "goldnugget"},
+    -- Mystery box: decent variety, medium reward
+    mystery_common = {
+        shared = {"goldnugget"},
         bonus = {
             rolls = 4,
             table = {
                 {"goldnugget", 20},
-                {"silk", 10}, {"honey", 10},
-                {"redgem", 5}, {"bluegem", 5},
+                {"silk", 15}, {"rope", 15},
+                {"boards", 12}, {"cutstone", 12},
+                {"gears", 5},
+                {"redgem", 4}, {"bluegem", 4},
                 {"purplegem", 2},
-                {"greengem", 1}, {"orangegem", 1}, {"yellowgem", 1},
             },
         },
     },
 
-    -- Cursed box loot (high risk, high reward)
-    cursed_box = {
-        shared = {"purplegem"},
+    -- Golden box: guaranteed good stuff, gem focused
+    golden_box = {
+        shared = {"goldnugget", "goldnugget", "goldnugget", "goldnugget", "goldnugget"},
         bonus = {
             rolls = 5,
             table = {
-                {"nightmarefuel", 15},
-                {"purplegem", 10},
-                {"livinglog", 8},
-                {"yellowgem", 3}, {"orangegem", 3}, {"greengem", 3},
-                {"thulecite", 2},
-                {"nightsword", 1},
-                {"armor_sanity", 1},
+                {"goldnugget", 25},
+                {"silk", 15}, {"honey", 15}, {"beeswax", 10},
+                {"redgem", 8}, {"bluegem", 8},
+                {"purplegem", 4},
+                {"greengem", 2}, {"orangegem", 2}, {"yellowgem", 2},
+                {"gears", 3},
             },
+        },
+    },
+
+    -- Cursed box: nightmare themed, high risk high reward
+    cursed_box = {
+        shared = {"purplegem", "purplegem", "nightmarefuel", "nightmarefuel"},
+        bonus = {
+            rolls = 6,
+            table = {
+                {"nightmarefuel", 20},
+                {"purplegem", 15},
+                {"livinglog", 10},
+                {"yellowgem", 5}, {"orangegem", 5}, {"greengem", 5},
+                {"thulecite", 4},
+                {"nightsword", 2},
+                {"armor_sanity", 2},
+                {"shadowheart", 1},
+            },
+        },
+    },
+
+    -- ==========================================================================
+    -- SEASONAL/THEMED PACKS
+    -- ==========================================================================
+
+    winter_survival = {
+        per_player = {"winterhat", "heatrock"},
+        shared = {
+            "log", "log", "log", "log",
+            "charcoal", "charcoal", "charcoal",
+            "beardhair", "beardhair",
+        },
+        bonus = {
+            rolls = 1,
+            table = {
+                {"beefalohat", 3},
+                {"walrushat", 1},
+            },
+        },
+    },
+
+    summer_survival = {
+        per_player = {"strawhat", "umbrella"},
+        shared = {
+            "ice", "ice", "ice", "ice",
+            "watermelon", "watermelon",
+            "nitre", "nitre",
+        },
+        bonus = {
+            rolls = 1,
+            table = {
+                {"icehat", 2},
+                {"eyebrellahat", 1},
+            },
+        },
+    },
+
+    explorer_kit = {
+        per_player = {"lantern", "compass"},
+        shared = {
+            "lightbulb", "lightbulb", "lightbulb",
+            "rope", "rope",
+            "twigs", "twigs", "twigs", "twigs",
+        },
+    },
+
+    bee_bonanza = {
+        shared = {
+            "honey", "honey", "honey", "honey", "honey",
+            "honeycomb", "honeycomb", "honeycomb",
+            "beeswax", "beeswax",
+            "bee", "bee", "bee",
+            "killerbee", "killerbee",
+        },
+    },
+
+    spider_haul = {
+        shared = {
+            "silk", "silk", "silk", "silk", "silk", "silk",
+            "spidergland", "spidergland", "spidergland",
+            "monstermeat", "monstermeat", "monstermeat",
+            "spidereggsack",
         },
     },
 }

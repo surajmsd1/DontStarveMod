@@ -239,6 +239,45 @@ ForceReleaseScoutMode = function(inst)
     end
 end
 
+-- Open tower teleport menu (client-side)
+local function OpenTeleportMenu(inst, doer)
+    if not doer.HUD then return end
+
+    -- Get unlocked towers from global function
+    local GetUnlockedTowers = rawget(_G, "MysteryBoxGetUnlockedTowers")
+    local TeleportToTower = rawget(_G, "MysteryBoxTeleportToTower")
+
+    if not GetUnlockedTowers or not TeleportToTower then
+        print("[Lookout Tower] ERROR: Teleport functions not available")
+        return
+    end
+
+    local towers = GetUnlockedTowers(inst)
+
+    if #towers < 2 then
+        if doer.components.talker then
+            doer.components.talker:Say("No other towers unlocked yet!")
+        end
+        return
+    end
+
+    -- Create and show the selection UI
+    local TowerSelect = require "widgets/towerselect"
+    doer._tower_select_ui = doer.HUD.root:AddChild(TowerSelect(
+        doer,
+        towers,
+        function(selected)  -- On select callback
+            if selected and selected.tower then
+                TeleportToTower(doer, selected.tower)
+            end
+            doer._tower_select_ui = nil
+        end,
+        function()  -- On cancel callback
+            doer._tower_select_ui = nil
+        end
+    ))
+end
+
 -- When player activates the tower
 local function OnActivate(inst, doer)
     -- Use network-synced state for check
@@ -251,6 +290,12 @@ local function OnActivate(inst, doer)
             end
         end
         return false
+    end
+
+    -- Check if player is holding SHIFT for teleport menu
+    if TheInput:IsKeyDown(KEY_SHIFT) then
+        OpenTeleportMenu(inst, doer)
+        return true
     end
 
     return EnterScoutMode(inst, doer)
@@ -382,7 +427,7 @@ local function fn()
         if tower._net_scout_active:value() then
             return "The tower hums with energy... Someone is scouting."
         end
-        return "A tall tower for surveying the land. Activate to enter scout mode."
+        return "Activate to scout. Hold SHIFT + activate to teleport to another tower."
     end
 
     inst:AddComponent("activatable")

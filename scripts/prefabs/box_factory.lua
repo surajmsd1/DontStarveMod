@@ -5,6 +5,53 @@ require "prefabutil"
 
 local BoxFactory = {}
 
+-- =============================================================================
+-- BOX VISUAL PRESETS
+-- Different visual styles using existing DST animations
+-- =============================================================================
+BoxFactory.VISUALS = {
+    -- Standard treasure chest (default)
+    treasure = {
+        bank = "chest",
+        build = "treasure_chest",
+        anim_closed = "closed",
+        anim_open = "open",
+        anim_file = "anim/treasure_chest.zip",
+    },
+    -- Pandora's/Ornate chest (ruins style - purple/fancy)
+    pandora = {
+        bank = "pandoras_chest",
+        build = "pandoras_chest",
+        anim_closed = "closed",
+        anim_open = "open",
+        anim_file = "anim/pandoras_chest.zip",
+    },
+    -- Gift box (present style)
+    gift = {
+        bank = "gift",
+        build = "gift",
+        anim_closed = "idle",
+        anim_open = "open",
+        anim_file = "anim/gift.zip",
+    },
+    -- Scaled/Dragonfly chest
+    scaled = {
+        bank = "dragonfly_chest",
+        build = "dragonfly_chest",
+        anim_closed = "closed",
+        anim_open = "open",
+        anim_file = "anim/dragonfly_chest.zip",
+    },
+    -- Hutch (walking chest - just for fun)
+    hutch = {
+        bank = "hutch",
+        build = "hutch",
+        anim_closed = "idle_loop",
+        anim_open = "open",
+        anim_file = "anim/hutch.zip",
+    },
+}
+
 -- Default configuration for all boxes
 local DEFAULTS = {
     bank = "chest",
@@ -20,6 +67,7 @@ local DEFAULTS = {
 -- config = {
 --   name: string (prefab name)
 --   tag: string (identifying tag)
+--   visual: string (key from VISUALS table) or nil for default
 --   tint: {r, g, b, a} or nil
 --   boxType: "normal" | "cursed" | "golden" (for event manager)
 --   openSound: string (sound path)
@@ -29,8 +77,11 @@ local DEFAULTS = {
 --   onActivateCustom: function(inst, doer) or nil (for custom logic like mysterybox)
 -- }
 function BoxFactory.Create(config)
+    -- Get visual preset if specified
+    local visual = config.visual and BoxFactory.VISUALS[config.visual] or nil
+
     local assets = {
-        Asset("ANIM", "anim/treasure_chest.zip"),
+        Asset("ANIM", visual and visual.anim_file or "anim/treasure_chest.zip"),
     }
 
     local function fn()
@@ -45,10 +96,14 @@ function BoxFactory.Create(config)
 
         MakeInventoryPhysics(inst)
 
-        -- Animation setup
-        inst.AnimState:SetBank(config.bank or DEFAULTS.bank)
-        inst.AnimState:SetBuild(config.build or DEFAULTS.build)
-        inst.AnimState:PlayAnimation(config.anim_closed or DEFAULTS.anim_closed)
+        -- Animation setup (use visual preset if available)
+        local bank = (visual and visual.bank) or config.bank or DEFAULTS.bank
+        local build = (visual and visual.build) or config.build or DEFAULTS.build
+        local anim_closed = (visual and visual.anim_closed) or config.anim_closed or DEFAULTS.anim_closed
+
+        inst.AnimState:SetBank(bank)
+        inst.AnimState:SetBuild(build)
+        inst.AnimState:PlayAnimation(anim_closed)
 
         -- Color tint
         if config.tint then
@@ -69,9 +124,10 @@ function BoxFactory.Create(config)
         inst.entity:SetPristine()
         if not TheWorld.ismastersim then
             -- CLIENT: Listen for state changes to update animation
+            local anim_open = (visual and visual.anim_open) or config.anim_open or DEFAULTS.anim_open
             inst:ListenForEvent("openeddirty", function()
                 if inst._opened:value() then
-                    inst.AnimState:PlayAnimation(config.anim_open or DEFAULTS.anim_open)
+                    inst.AnimState:PlayAnimation(anim_open)
                 end
             end)
             return inst
@@ -93,7 +149,8 @@ function BoxFactory.Create(config)
             inst._opened:set(true)
 
             -- Play animation and sound
-            inst.AnimState:PlayAnimation(config.anim_open or DEFAULTS.anim_open)
+            local anim_open = (visual and visual.anim_open) or config.anim_open or DEFAULTS.anim_open
+            inst.AnimState:PlayAnimation(anim_open)
             inst.SoundEmitter:PlaySound(config.openSound or DEFAULTS.open_sound)
 
             -- Trigger tower unlock for this branch

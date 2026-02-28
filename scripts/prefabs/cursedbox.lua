@@ -22,7 +22,8 @@ end
 return BoxFactory.Create({
     name = "cursedbox",
     tag = "cursedbox",
-    tint = {0.5, 0.2, 0.5, 1},  -- Purple
+    visual = "pandora",  -- Ornate/ruins chest style
+    tint = {0.6, 0.3, 0.8, 1},  -- Purple tint
     boxType = "cursed",
     openSound = "dontstarve/common/nightmareportal_1",
     onActivateCustom = OnActivateCustom,
