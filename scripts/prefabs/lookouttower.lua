@@ -4,13 +4,12 @@
 require "prefabutil"
 
 local assets = {
-    Asset("ANIM", "anim/winona_spotlight.zip"),  -- Using spotlight tower as base
+    Asset("ANIM", "anim/winona_spotlight.zip"),
 }
 
 -- Scout mode constants
 local SCOUT_SPEED = 50  -- 50x normal speed (~400 total)
 local SCOUT_REVEAL_RADIUS = 30  -- Map reveal radius as player moves
-local SCOUT_ZOOM_TARGET = 0.5  -- Zoom out factor (lower = more zoomed out)
 
 -- Sound effects paths
 local SOUNDS = {
@@ -18,7 +17,12 @@ local SOUNDS = {
     ambient = "dontstarve/common/together/spot_light/spot_light_LP",
     drop_in = "dontstarve/common/teleportato/teleportato_pulled",
     whoosh = "dontstarve/common/teleportato/place_ring",
+    unlock = "dontstarve/common/together/celestial_orb/active",
 }
+
+-- Forward declarations
+local ExitScoutMode
+local ForceReleaseScoutMode
 
 -- Enter scout mode
 local function EnterScoutMode(inst, doer)
@@ -44,7 +48,7 @@ local function EnterScoutMode(inst, doer)
     end
     if doer.components.sanity then
         doer._scout_sanity_mode = doer.components.sanity.mode
-        doer.components.sanity.mode = SANITY_MODE_INSANITY  -- Stop drain
+        doer.components.sanity.mode = SANITY_MODE_INSANITY
     end
 
     -- Super speed
@@ -56,7 +60,7 @@ local function EnterScoutMode(inst, doer)
 
     -- Add scout tag for identification
     doer:AddTag("scouting")
-    doer:AddTag("notarget")  -- Enemies ignore
+    doer:AddTag("notarget")
 
     -- Disable combat
     if doer.components.combat then
@@ -66,11 +70,18 @@ local function EnterScoutMode(inst, doer)
 
     -- Start map reveal task
     doer._scout_reveal_task = doer:DoPeriodicTask(0.3, function()
-        if doer.player_classified and doer.player_classified.MapExplorer then
+        if doer:IsValid() and doer.player_classified and doer.player_classified.MapExplorer then
             local x, y, z = doer.Transform:GetWorldPosition()
             doer.player_classified.MapExplorer:RevealArea(x, 0, z, SCOUT_REVEAL_RADIUS)
         end
     end)
+
+    -- CLEANUP HANDLER: Player death while scouting
+    doer._scout_death_handler = function(player)
+        print("[Lookout Tower] Scouting player died, cleaning up...")
+        ExitScoutMode(doer, true)
+    end
+    doer:ListenForEvent("death", doer._scout_death_handler)
 
     -- Play activation sound
     inst.SoundEmitter:PlaySound(SOUNDS.activate)
@@ -87,32 +98,30 @@ local function EnterScoutMode(inst, doer)
     inst.SoundEmitter:PlaySound(SOUNDS.ambient, "loop")
 
     -- CLIENT-SIDE: Camera zoom and overlay (only for the local player)
-    -- We'll trigger this via a net event that the client handles
     if doer.HUD then
-        -- Create scout overlay widget
         local ScoutOverlay = require "widgets/scoutoverlay"
         doer._scout_overlay = doer.HUD.root:AddChild(ScoutOverlay(doer))
 
-        -- Zoom out the camera
         if TheCamera then
             doer._scout_original_zoom = TheCamera.targetdistance or TheCamera.distance
-            -- Use smooth zoom by setting target
             if TheCamera.SetDistance then
                 TheCamera:SetDistance(doer._scout_original_zoom * 0.6)
             end
         end
     end
 
-    -- Store state
-    inst.scout_active = true
+    -- Store state (server-side)
     inst.scout_player = doer
+
+    -- Set network-synced state
+    inst._net_scout_active:set(true)
 
     print("[Lookout Tower] Scout mode ACTIVATED for " .. tostring(doer))
     return true
 end
 
 -- Exit scout mode (drop in at current location)
-local function ExitScoutMode(doer, teleport_back)
+ExitScoutMode = function(doer, teleport_back)
     if not doer or not doer:HasTag("scouting") then
         return false
     end
@@ -125,30 +134,40 @@ local function ExitScoutMode(doer, teleport_back)
         doer._scout_reveal_task = nil
     end
 
+    -- Remove death listener
+    if doer._scout_death_handler then
+        doer:RemoveEventCallback("death", doer._scout_death_handler)
+        doer._scout_death_handler = nil
+    end
+
     -- Restore speed
-    doer.components.locomotor.runspeed = doer._scout_original_speed or 8
-    doer.components.locomotor.walkspeed = doer._scout_original_walkspeed or 4
+    if doer.components and doer.components.locomotor then
+        doer.components.locomotor.runspeed = doer._scout_original_speed or 8
+        doer.components.locomotor.walkspeed = doer._scout_original_walkspeed or 4
+    end
 
     -- Restore health
-    if doer.components.health then
+    if doer.components and doer.components.health then
         doer.components.health:SetInvincible(false)
     end
 
     -- Restore hunger/sanity
-    if doer.components.hunger and doer._scout_hunger_rate then
+    if doer.components and doer.components.hunger and doer._scout_hunger_rate then
         doer.components.hunger.hungerrate = doer._scout_hunger_rate
     end
-    if doer.components.sanity and doer._scout_sanity_mode then
+    if doer.components and doer.components.sanity and doer._scout_sanity_mode then
         doer.components.sanity.mode = doer._scout_sanity_mode
     end
 
     -- Restore combat
-    if doer.components.combat and doer._scout_combat_enabled then
+    if doer.components and doer.components.combat and doer._scout_combat_enabled then
         doer.components.combat:SetAttackPeriod(0.5)
     end
 
     -- Restore visual
-    doer.AnimState:SetMultColour(1, 1, 1, 1)
+    if doer.AnimState then
+        doer.AnimState:SetMultColour(1, 1, 1, 1)
+    end
 
     -- Remove tags
     doer:RemoveTag("scouting")
@@ -184,7 +203,7 @@ local function ExitScoutMode(doer, teleport_back)
     doer._scout_combat_enabled = nil
 
     -- Announce
-    if doer.components.talker then
+    if doer.components and doer.components.talker then
         if teleport_back then
             doer.components.talker:Say("Returned to tower.")
         else
@@ -196,23 +215,37 @@ local function ExitScoutMode(doer, teleport_back)
     if tower and tower:IsValid() then
         tower.AnimState:PlayAnimation("idle_off", true)
         tower.SoundEmitter:KillSound("loop")
-        tower.scout_active = false
         tower.scout_player = nil
+        tower._net_scout_active:set(false)
     end
 
     print("[Lookout Tower] Scout mode DEACTIVATED for " .. tostring(doer))
     return true
 end
 
+-- Force release scout mode (for disconnect/removal)
+ForceReleaseScoutMode = function(inst)
+    local player = inst.scout_player
+
+    if player and player:IsValid() then
+        ExitScoutMode(player, true)
+    else
+        -- Player already gone, just reset tower state
+        inst.AnimState:PlayAnimation("idle_off", true)
+        inst.SoundEmitter:KillSound("loop")
+        inst.scout_player = nil
+        inst._net_scout_active:set(false)
+        print("[Lookout Tower] Force released (player gone)")
+    end
+end
+
 -- When player activates the tower
 local function OnActivate(inst, doer)
-    if inst.scout_active then
-        -- Tower already active - maybe by another player or re-clicking
+    -- Use network-synced state for check
+    if inst._net_scout_active:value() then
         if inst.scout_player == doer then
-            -- Same player, exit and return to tower
             ExitScoutMode(doer, true)
         else
-            -- Different player or issue
             if doer.components.talker then
                 doer.components.talker:Say("Tower is already in use!")
             end
@@ -225,10 +258,9 @@ end
 
 -- Unlock the tower (called when chest opened in this branch)
 local function UnlockTower(inst)
-    if inst.is_locked then
-        inst.is_locked = false
-        inst.AnimState:SetMultColour(1, 0.9, 0.5, 1)  -- Golden
-        inst.SoundEmitter:PlaySound("dontstarve/common/together/celestial_orb/active")
+    if inst._net_is_locked:value() then
+        inst._net_is_locked:set(false)
+        inst.SoundEmitter:PlaySound(SOUNDS.unlock)
         print("[Lookout Tower] Tower UNLOCKED at branch " .. tostring(inst._branch_id))
     end
 end
@@ -251,7 +283,7 @@ local function fn()
     inst.AnimState:SetBuild("winona_spotlight")
     inst.AnimState:PlayAnimation("idle_off", true)
 
-    -- Golden tint to make it special (will be grey if locked)
+    -- Default golden tint (will change based on network state)
     inst.AnimState:SetMultColour(1, 0.9, 0.5, 1)
 
     -- Tags
@@ -261,27 +293,93 @@ local function fn()
     -- Minimap icon
     inst.MiniMapEntity:SetIcon("firepit.png")
 
+    -- NETWORK VARIABLES (before SetPristine)
+    inst._net_scout_active = net_bool(inst.GUID, "lookouttower.scout_active", "scoutactivedirty")
+    inst._net_is_locked = net_bool(inst.GUID, "lookouttower.is_locked", "islockeddirty")
+
     inst.entity:SetPristine()
     if not TheWorld.ismastersim then
+        -- CLIENT: Apply initial state after short delay (for late joiners)
+        inst:DoTaskInTime(0, function()
+            if inst._net_is_locked:value() then
+                inst.AnimState:SetMultColour(0.4, 0.4, 0.4, 1)
+            else
+                inst.AnimState:SetMultColour(1, 0.9, 0.5, 1)
+            end
+
+            if inst._net_scout_active:value() then
+                inst.AnimState:PlayAnimation("idle_on", true)
+            end
+        end)
+
+        -- CLIENT: React to scout active changes
+        inst:ListenForEvent("scoutactivedirty", function()
+            if inst._net_scout_active:value() then
+                inst.AnimState:PlayAnimation("place")
+                inst.AnimState:PushAnimation("idle_on", true)
+            else
+                inst.AnimState:PlayAnimation("idle_off", true)
+            end
+        end)
+
+        -- CLIENT: React to locked state changes
+        inst:ListenForEvent("islockeddirty", function()
+            if inst._net_is_locked:value() then
+                inst.AnimState:SetMultColour(0.4, 0.4, 0.4, 1)
+            else
+                inst.AnimState:SetMultColour(1, 0.9, 0.5, 1)
+                inst.SoundEmitter:PlaySound(SOUNDS.unlock)
+            end
+        end)
+
         return inst
     end
 
+    -- SERVER SIDE --
+
     -- Server-side state
-    inst.scout_active = false
     inst.scout_player = nil
-    inst.is_locked = false  -- Crafted towers start unlocked
-    inst._branch_id = nil   -- Set by auto-spawn system
+    inst._branch_id = nil
+
+    -- Initialize network state
+    inst._net_scout_active:set(false)
+    inst._net_is_locked:set(false)  -- Crafted towers start unlocked
 
     -- Unlock function (exposed for modmain to call)
     inst.Unlock = UnlockTower
 
+    -- Set locked state (for auto-spawned towers)
+    inst.SetLocked = function(self, locked)
+        self._net_is_locked:set(locked)
+    end
+
+    -- CLEANUP: Listen for player disconnect
+    inst._disconnect_handler = function(world, player)
+        if inst.scout_player and inst.scout_player == player then
+            print("[Lookout Tower] Scouting player disconnected")
+            ForceReleaseScoutMode(inst)
+        end
+    end
+    TheWorld:ListenForEvent("ms_playerleft", inst._disconnect_handler)
+
+    -- Clean up disconnect listener when tower is removed
+    inst:ListenForEvent("onremove", function()
+        if inst._disconnect_handler then
+            TheWorld:RemoveEventCallback("ms_playerleft", inst._disconnect_handler)
+        end
+        -- Also release scout mode if someone was using it
+        if inst.scout_player and inst.scout_player:IsValid() then
+            ExitScoutMode(inst.scout_player, true)
+        end
+    end)
+
     -- Components
     inst:AddComponent("inspectable")
-    inst.components.inspectable.descriptionfn = function(inst)
-        if inst.is_locked then
+    inst.components.inspectable.descriptionfn = function(tower)
+        if tower._net_is_locked:value() then
             return "This tower is dormant. Open a Mystery Box in this area to activate it."
         end
-        if inst.scout_active then
+        if tower._net_scout_active:value() then
             return "The tower hums with energy... Someone is scouting."
         end
         return "A tall tower for surveying the land. Activate to enter scout mode."
@@ -289,8 +387,7 @@ local function fn()
 
     inst:AddComponent("activatable")
     inst.components.activatable.OnActivate = function(tower, doer)
-        -- Check if locked
-        if tower.is_locked then
+        if tower._net_is_locked:value() then
             if doer.components.talker then
                 doer.components.talker:Say("The tower is dormant... I need to find a chest first.")
             end
@@ -304,13 +401,13 @@ local function fn()
     inst:AddComponent("workable")
     inst.components.workable:SetWorkAction(ACTIONS.HAMMER)
     inst.components.workable:SetWorkLeft(4)
-    inst.components.workable:SetOnFinishCallback(function(inst, worker)
+    inst.components.workable:SetOnFinishCallback(function(tower, worker)
         -- End scout mode if active
-        if inst.scout_active and inst.scout_player then
-            ExitScoutMode(inst.scout_player, true)
+        if tower._net_scout_active:value() and tower.scout_player then
+            ExitScoutMode(tower.scout_player, true)
         end
         -- Drop materials
-        local x, y, z = inst.Transform:GetWorldPosition()
+        local x, y, z = tower.Transform:GetWorldPosition()
         for i = 1, 3 do
             local boards = SpawnPrefab("boards")
             if boards then
@@ -323,7 +420,7 @@ local function fn()
                 gold.Transform:SetPosition(x + math.random() - 0.5, 0, z + math.random() - 0.5)
             end
         end
-        inst:Remove()
+        tower:Remove()
     end)
 
     return inst
