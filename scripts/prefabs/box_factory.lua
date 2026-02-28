@@ -80,9 +80,9 @@ function BoxFactory.Create(config)
     -- Get visual preset if specified
     local visual = config.visual and BoxFactory.VISUALS[config.visual] or nil
 
-    local assets = {
-        Asset("ANIM", visual and visual.anim_file or "anim/treasure_chest.zip"),
-    }
+    -- Note: We don't need Asset() for game animations - they're already loaded
+    -- Only need Asset() for custom mod animations
+    local assets = {}
 
     local function fn()
         local inst = CreateEntity()
