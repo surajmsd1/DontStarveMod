@@ -1,10 +1,10 @@
 -- Mystery Box Mod for Don't Starve Together
 -- A placeable box that rewards players with random items when activated
 
-name = "Mystery Box"
-description = "DnD Gamemaster style mod! Daily events, epic challenges, and mystery boxes. Cursed boxes spawn enemies, Golden boxes rain loot. Features Arena Challenge, Shadow Invasion, Giant Awakens, and more!"
-author = "DontStarveMod"
-version = "3.2.5"
+name = ">>> DEV Mystery Box <<<"
+description = "LOCAL DEV VERSION - If you see this, you're running the dev build! Features: Lookout Tower, Scout Mode, Boxes, Events."
+author = "DEV"
+version = "DEV-3.3.0"
 
 -- Don't Starve Together compatibility
 api_version = 10

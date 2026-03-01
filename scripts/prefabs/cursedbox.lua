@@ -30,6 +30,15 @@ local function OnActivate(inst, doer)
         doer.components.talker:Say("This feels... dangerous!")
     end
 
+    -- Start Day One objective
+    print("[Cursed Box] Checking for StartDayOneObjective...")
+    if rawget(_G, "StartDayOneObjective") then
+        print("[Cursed Box] Found! Calling StartDayOneObjective")
+        _G.StartDayOneObjective(doer)
+    else
+        print("[Cursed Box] StartDayOneObjective NOT FOUND in _G")
+    end
+
     -- Drop loot after delay
     inst:DoTaskInTime(3.0, function()
         local x, y, z = inst.Transform:GetWorldPosition()

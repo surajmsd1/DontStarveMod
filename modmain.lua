@@ -15,17 +15,19 @@ end
 
 Log("Mod loading...")
 
--- Register all box prefabs
+-- Register all prefabs
 PrefabFiles = {
     "mysterybox",
     "cursedbox",
     "goldenbox",
+    "lookouttower",
 }
 
 -- Display names for prefabs
 GLOBAL.STRINGS.NAMES.MYSTERYBOX = "Mystery Box"
 GLOBAL.STRINGS.NAMES.CURSEDBOX = "Cursed Box"
 GLOBAL.STRINGS.NAMES.GOLDENBOX = "Golden Box"
+GLOBAL.STRINGS.NAMES.LOOKOUTTOWER = "Lookout Tower"
 
 -- Inspection descriptions
 GLOBAL.STRINGS.CHARACTERS.GENERIC.DESCRIBE.MYSTERYBOX = "I wonder what's inside..."
@@ -597,9 +599,9 @@ local function OnWorldPostInit(world)
         -- Create the event manager
         EventManager = CreateEventManager(world)
 
-        -- Store reference globally for prefabs to access (use _G for prefab compatibility)
-        _G.MysteryBoxEventManager = EventManager
-        GLOBAL.MysteryBoxEventManager = EventManager
+        -- Store reference globally for prefabs to access
+        -- (disabled due to strict mode - prefabs use rawget instead)
+        -- EventManager stored locally, accessed via GLOBAL.TheWorld.event_manager if needed
 
         -- Register all events
         RegisterAllEvents(EventManager)
@@ -676,7 +678,176 @@ AddPrefabPostInit("world", function(world)
     end
 end)
 
+-- =============================================================================
+-- LOOKOUT TOWER: Scout mode overlay and zoom
+-- =============================================================================
+
+-- Add overlay when entering scout mode
+AddPlayerPostInit(function(player)
+    player:ListenForEvent("enterscoutmode", function()
+        if player.HUD then
+            local ScoutOverlay = require "widgets/scoutoverlay"
+            player._scout_overlay = player.HUD.root:AddChild(ScoutOverlay(player))
+
+            -- Zoom out (2.5 = much farther away)
+            if GLOBAL.TheCamera then
+                player._scout_original_zoom = GLOBAL.TheCamera.distance
+                GLOBAL.TheCamera:SetDistance(player._scout_original_zoom * 2.5)
+            end
+
+            -- Hide clouds/overlays
+            if player.HUD.overlays then
+                player._scout_overlays_alpha = {}
+                for name, overlay in pairs(player.HUD.overlays) do
+                    if overlay.SetAlpha then
+                        player._scout_overlays_alpha[name] = true
+                        overlay:SetAlpha(0)
+                    elseif overlay.Hide then
+                        overlay:Hide()
+                    end
+                end
+            end
+            -- Also try the over layer
+            if player.HUD.over then
+                player.HUD.over:Hide()
+            end
+        end
+    end)
+
+    player:ListenForEvent("exitscoutmode", function()
+        if player._scout_overlay then
+            player._scout_overlay:Kill()
+            player._scout_overlay = nil
+        end
+
+        -- Restore zoom
+        if player._scout_original_zoom and GLOBAL.TheCamera then
+            GLOBAL.TheCamera:SetDistance(player._scout_original_zoom)
+            player._scout_original_zoom = nil
+        end
+
+        -- Restore overlays
+        if player.HUD then
+            if player.HUD.overlays and player._scout_overlays_alpha then
+                for name, overlay in pairs(player.HUD.overlays) do
+                    if overlay.SetAlpha then
+                        overlay:SetAlpha(1)
+                    elseif overlay.Show then
+                        overlay:Show()
+                    end
+                end
+                player._scout_overlays_alpha = nil
+            end
+            if player.HUD.over then
+                player.HUD.over:Show()
+            end
+        end
+    end)
+end)
+
+-- SPACE key to drop in while scouting
+GLOBAL.TheInput:AddKeyDownHandler(GLOBAL.KEY_SPACE, function()
+    local player = GLOBAL.ThePlayer
+    if player and player:HasTag("scouting") then
+        if GLOBAL.LookoutTowerExitScout then
+            GLOBAL.LookoutTowerExitScout(player, false)  -- false = don't teleport back
+        end
+    end
+end)
+
+-- =============================================================================
+-- DAY ONE OBJECTIVE: Gather grass and twigs (triggered by cursed box)
+-- Shared across all players
+-- =============================================================================
+
+-- Shared objective state (stored on TheWorld)
+local function GetSharedObjective()
+    if GLOBAL.TheWorld and GLOBAL.TheWorld._day_one_objective then
+        return GLOBAL.TheWorld._day_one_objective
+    end
+    return nil
+end
+
+local function InitSharedObjective()
+    if not GLOBAL.TheWorld then return nil end
+    if GLOBAL.TheWorld._day_one_objective then return GLOBAL.TheWorld._day_one_objective end
+
+    GLOBAL.TheWorld._day_one_objective = {
+        grass_count = 0,
+        twigs_count = 0,
+        completed = false,
+        trackers = {},  -- All player UI widgets
+    }
+    return GLOBAL.TheWorld._day_one_objective
+end
+
+local function UpdateAllTrackers()
+    local obj = GetSharedObjective()
+    if not obj then return end
+
+    for player, tracker in pairs(obj.trackers) do
+        if tracker and tracker:IsValid() then
+            tracker.grass_count = obj.grass_count
+            tracker.twigs_count = obj.twigs_count
+            tracker:UpdateDisplay()
+            tracker:CheckComplete()
+        end
+    end
+end
+
+-- Global function to start objective (called from cursed box)
+local function StartDayOneObjective(player)
+    local obj = InitSharedObjective()
+    if not obj then return end
+
+    -- Add tracker UI to ALL players
+    for _, p in ipairs(GLOBAL.AllPlayers or {}) do
+        if p and p.HUD and not obj.trackers[p] then
+            local ok, ObjectiveTracker = GLOBAL.pcall(function()
+                return require "widgets/objectivetracker"
+            end)
+
+            if ok and ObjectiveTracker then
+                local tracker = p.HUD.root:AddChild(ObjectiveTracker(p))
+                tracker.grass_count = obj.grass_count
+                tracker.twigs_count = obj.twigs_count
+                tracker:UpdateDisplay()
+                obj.trackers[p] = tracker
+                Log("Day One objective UI added for player: " .. tostring(p))
+            end
+        end
+    end
+    Log("Day One objective started for all players!")
+end
+
+-- Make it globally accessible for cursed box
+GLOBAL.rawset(GLOBAL, "StartDayOneObjective", StartDayOneObjective)
+Log("StartDayOneObjective registered globally!")
+
+AddPlayerPostInit(function(player)
+    -- Track item pickups for shared objective
+    player:ListenForEvent("itemget", function(inst, data)
+        local obj = GetSharedObjective()
+        if obj and not obj.completed then
+            local item = data.item
+            if item then
+                local prefab = item.prefab
+                if prefab == "cutgrass" then
+                    obj.grass_count = math.min(10, obj.grass_count + 1)
+                    Log("Grass collected! Total: " .. obj.grass_count)
+                    UpdateAllTrackers()
+                elseif prefab == "twigs" then
+                    obj.twigs_count = math.min(10, obj.twigs_count + 1)
+                    Log("Twigs collected! Total: " .. obj.twigs_count)
+                    UpdateAllTrackers()
+                end
+            end
+        end
+    end)
+end)
+
 -- Log successful initialization
 Log("Mod initialized successfully!")
 Log("DnD Gamemaster mode enabled - daily and weekly events active!")
-Log("Objective Dashboard system loaded!")
+Log("Lookout Tower system loaded!")
+Log("Day One objective system loaded!")
