@@ -1,10 +1,10 @@
 -- Mystery Box Mod for Don't Starve Together
 -- A placeable box that rewards players with random items when activated
 
-name = ">>> DEV Mystery Box <<<"
-description = "LOCAL DEV VERSION - If you see this, you're running the dev build! Features: Lookout Tower, Scout Mode, Boxes, Events."
+name = "[LOCAL] Mystery Box DEV"
+description = "LOCAL COPY - Synced from dev folder. Features: Lookout Tower, Scout Mode, Challenge System, Boxes, Events."
 author = "DEV"
-version = "DEV-3.3.0"
+version = "DEV-3.4.0"
 
 -- Don't Starve Together compatibility
 api_version = 10
@@ -13,7 +13,7 @@ dont_starve_compatible = false
 reign_of_giants_compatible = false
 all_clients_require_mod = true
 
--- Icon will be added later
+-- Icon (placeholder borrowed from another mod)
 icon_atlas = "modicon.xml"
 icon = "modicon.tex"
 
