@@ -85,8 +85,76 @@ local ScoutOverlay = Class(Widget, function(self, owner)
     self.coords:SetPosition(0, -circleRadius + 25)
     self.coords:SetColour(0.8, 0.8, 0.8, 0.5)
 
+    -- Distance bar (at bottom of visible circle)
+    local barWidth = 160
+    local barHeight = 12
+    local barY = -circleRadius + 55
+
+    -- Bar frame/border
+    self.bar_border = self:AddChild(Image("images/global.xml", "square.tex"))
+    self.bar_border:SetTint(0.3, 0.25, 0.2, 0.9)
+    self.bar_border:SetSize(barWidth + 6, barHeight + 6)
+    self.bar_border:SetPosition(0, barY)
+
+    -- Bar background
+    self.bar_bg = self:AddChild(Image("images/global.xml", "square.tex"))
+    self.bar_bg:SetTint(0.15, 0.12, 0.1, 0.9)
+    self.bar_bg:SetSize(barWidth, barHeight)
+    self.bar_bg:SetPosition(0, barY)
+
+    -- Bar fill (starts empty, fills as you travel)
+    self.bar_fill = self:AddChild(Image("images/global.xml", "square.tex"))
+    self.bar_fill:SetTint(0.3, 0.8, 0.3, 1)  -- Green initially
+    self.bar_fill:SetSize(0, barHeight - 2)
+    self.bar_fill:SetPosition(-barWidth/2, barY)
+
+    -- Distance label
+    self.dist_label = self:AddChild(Text(UIFONT, 12))
+    self.dist_label:SetPosition(0, barY + 15)
+    self.dist_label:SetColour(0.9, 0.85, 0.7, 0.8)
+    self.dist_label:SetString("TETHER")
+
+    -- Store bar dimensions for updates
+    self.barWidth = barWidth
+    self.barHeight = barHeight
+    self.barY = barY
+    self.distPct = 0
+
+    -- Listen for distance updates
+    self.owner:ListenForEvent("scoutdistance", function(inst, data)
+        self:UpdateDistanceBar(data.pct, data.distance)
+    end)
+
     self:StartUpdating()
 end)
+
+function ScoutOverlay:UpdateDistanceBar(pct, distance)
+    self.distPct = pct
+    local fillWidth = self.barWidth * pct
+
+    -- Update fill size and position (anchored left)
+    self.bar_fill:SetSize(fillWidth, self.barHeight - 2)
+    self.bar_fill:SetPosition(-self.barWidth/2 + fillWidth/2, self.barY)
+
+    -- Color gradient: green -> yellow -> red
+    local r, g, b
+    if pct < 0.5 then
+        -- Green to yellow
+        r = pct * 2
+        g = 0.8
+        b = 0.3 * (1 - pct * 2)
+    else
+        -- Yellow to red
+        r = 1
+        g = 0.8 * (1 - (pct - 0.5) * 2)
+        b = 0
+    end
+    self.bar_fill:SetTint(r, g, b, 1)
+
+    -- Update label
+    local remaining = math.floor((1 - pct) * 150)  -- Approximate remaining distance
+    self.dist_label:SetString(string.format("TETHER: %dm", remaining))
+end
 
 function ScoutOverlay:OnUpdate(dt)
     if not self.owner or not self.owner:IsValid() then

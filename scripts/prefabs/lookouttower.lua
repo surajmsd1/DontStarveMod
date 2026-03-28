@@ -10,15 +10,19 @@ local assets = {
 
 local SCOUT_SPEED = 35  -- Reduced for better control
 local SCOUT_REVEAL_RADIUS = 30
+local SCOUT_MAX_DISTANCE = 150  -- Max distance before forced drop-in
 
 local function EnterScoutMode(inst, doer)
     if not doer or not doer:HasTag("player") then
         return false
     end
 
-    -- Store originals
+    -- Store originals and tower position
     doer._scout_original_speed = doer.components.locomotor.runspeed
     doer._scout_tower = inst
+    local tx, ty, tz = inst.Transform:GetWorldPosition()
+    doer._scout_tower_pos = {x = tx, z = tz}
+    doer._scout_max_dist = SCOUT_MAX_DISTANCE
 
     -- Super speed (normal is ~6, this is ~6x faster)
     doer.components.locomotor.runspeed = SCOUT_SPEED
@@ -40,11 +44,32 @@ local function EnterScoutMode(inst, doer)
         doer:PushEvent("enterscoutmode")
     end
 
-    -- Map reveal
-    doer._scout_reveal_task = doer:DoPeriodicTask(0.3, function()
+    -- Map reveal + distance tracking
+    doer._scout_reveal_task = doer:DoPeriodicTask(0.2, function()
+        local x, y, z = doer.Transform:GetWorldPosition()
+
+        -- Map reveal
         if doer.player_classified and doer.player_classified.MapExplorer then
-            local x, y, z = doer.Transform:GetWorldPosition()
             doer.player_classified.MapExplorer:RevealArea(x, 0, z, SCOUT_REVEAL_RADIUS)
+        end
+
+        -- Distance check
+        if doer._scout_tower_pos then
+            local dx = x - doer._scout_tower_pos.x
+            local dz = z - doer._scout_tower_pos.z
+            local dist = math.sqrt(dx * dx + dz * dz)
+            local pct = math.min(1, dist / SCOUT_MAX_DISTANCE)
+
+            -- Push distance update to UI
+            doer:PushEvent("scoutdistance", {distance = dist, max = SCOUT_MAX_DISTANCE, pct = pct})
+
+            -- Force drop-in if too far
+            if dist >= SCOUT_MAX_DISTANCE then
+                if doer.components.talker then
+                    doer.components.talker:Say("Too far! Dropping in!")
+                end
+                ExitScoutMode(doer, false)
+            end
         end
     end)
 
@@ -106,6 +131,8 @@ local function ExitScoutMode(doer, teleport_back)
 
     doer._scout_original_speed = nil
     doer._scout_tower = nil
+    doer._scout_tower_pos = nil
+    doer._scout_max_dist = nil
 
     print("[Lookout Tower] Scout mode OFF")
     return true
