@@ -756,94 +756,178 @@ GLOBAL.TheInput:AddKeyDownHandler(GLOBAL.KEY_SPACE, function()
 end)
 
 -- =============================================================================
--- DAY ONE OBJECTIVE: Gather grass and twigs (triggered by cursed box)
--- Shared across all players
+-- CHALLENGE SYSTEM - Data-driven challenges with shared multiplayer state
 -- =============================================================================
+--[[
+ARCHITECTURE:
+- Challenge definitions live in scripts/challenges/challenge_data.lua
+- ObjectiveTracker widget (scripts/widgets/objectivetracker.lua) renders any challenge
+- State is stored on TheWorld for multiplayer sync
+- Events are tracked via check_progress() function in challenge config
 
--- Shared objective state (stored on TheWorld)
-local function GetSharedObjective()
-    if GLOBAL.TheWorld and GLOBAL.TheWorld._day_one_objective then
-        return GLOBAL.TheWorld._day_one_objective
+FLOW:
+1. Cursed box opened -> StartChallenge("day_one") called
+2. Challenge config loaded from ChallengeData
+3. ObjectiveTracker UI created for all players
+4. Player events trigger check_progress() -> AddProgress() -> UpdateDisplay()
+5. When complete: GrantReward() -> Kill UI after delay
+--]]
+
+-- Shared challenge state (stored on TheWorld for multiplayer)
+local function GetActiveChallenge()
+    if GLOBAL.TheWorld and GLOBAL.TheWorld._active_challenge then
+        return GLOBAL.TheWorld._active_challenge
     end
     return nil
 end
 
-local function InitSharedObjective()
-    if not GLOBAL.TheWorld then return nil end
-    if GLOBAL.TheWorld._day_one_objective then return GLOBAL.TheWorld._day_one_objective end
+-- Initialize a new challenge
+-- @param challenge_id string - ID from challenge_data.lua
+local function StartChallenge(challenge_id)
+    if not GLOBAL.TheWorld then return end
+    if GLOBAL.TheWorld._active_challenge then
+        Log("Challenge already active: " .. GLOBAL.TheWorld._active_challenge.config.id)
+        return
+    end
 
-    GLOBAL.TheWorld._day_one_objective = {
-        grass_count = 0,
-        twigs_count = 0,
+    -- Load challenge data
+    local ok, ChallengeData = GLOBAL.pcall(function()
+        return require "challenges/challenge_data"
+    end)
+    if not ok then
+        Log("ERROR: Failed to load challenge_data")
+        return
+    end
+
+    local config = ChallengeData.GetChallenge(challenge_id)
+    if not config then
+        Log("ERROR: Challenge not found: " .. tostring(challenge_id))
+        return
+    end
+
+    -- Initialize shared state
+    local state = {
+        config = config,
+        progress = {},      -- { objective_id = count, ... }
         completed = false,
-        trackers = {},  -- All player UI widgets
+        trackers = {},      -- { player = widget, ... }
     }
-    return GLOBAL.TheWorld._day_one_objective
+
+    -- Initialize progress for each objective
+    for _, obj in ipairs(config.objectives) do
+        state.progress[obj.id] = 0
+    end
+
+    GLOBAL.TheWorld._active_challenge = state
+    Log("Challenge started: " .. config.title)
+
+    -- Create UI for all current players
+    for _, player in ipairs(GLOBAL.AllPlayers or {}) do
+        AddChallengeTrackerToPlayer(player)
+    end
 end
 
-local function UpdateAllTrackers()
-    local obj = GetSharedObjective()
-    if not obj then return end
+-- Add tracker UI to a specific player
+function AddChallengeTrackerToPlayer(player)
+    local state = GetActiveChallenge()
+    if not state or not player or not player.HUD then return end
+    if state.trackers[player] then return end  -- Already has tracker
 
-    for player, tracker in pairs(obj.trackers) do
+    local ok, ObjectiveTracker = GLOBAL.pcall(function()
+        return require "widgets/objectivetracker"
+    end)
+
+    if ok and ObjectiveTracker then
+        local tracker = player.HUD.root:AddChild(ObjectiveTracker(player, state.config))
+
+        -- Sync existing progress
+        for obj_id, count in pairs(state.progress) do
+            tracker:SetProgress(obj_id, count)
+        end
+
+        state.trackers[player] = tracker
+        Log("Challenge tracker added for: " .. tostring(player))
+    end
+end
+
+-- Update all player trackers with current progress
+local function UpdateAllChallengeTrackers()
+    local state = GetActiveChallenge()
+    if not state then return end
+
+    for player, tracker in pairs(state.trackers) do
         if tracker and tracker:IsValid() then
-            tracker.grass_count = obj.grass_count
-            tracker.twigs_count = obj.twigs_count
-            tracker:UpdateDisplay()
+            for obj_id, count in pairs(state.progress) do
+                tracker:SetProgress(obj_id, count)
+            end
             tracker:CheckComplete()
         end
     end
 end
 
--- Global function to start objective (called from cursed box)
-local function StartDayOneObjective(player)
-    local obj = InitSharedObjective()
-    if not obj then return end
+-- Handle an event and check if it contributes to challenge progress
+-- @param player entity - Player who triggered event
+-- @param event_name string - DST event name
+-- @param event_data table - Event data
+local function OnChallengeEvent(player, event_name, event_data)
+    local state = GetActiveChallenge()
+    if not state or state.completed then return end
 
-    -- Add tracker UI to ALL players
-    for _, p in ipairs(GLOBAL.AllPlayers or {}) do
-        if p and p.HUD and not obj.trackers[p] then
-            local ok, ObjectiveTracker = GLOBAL.pcall(function()
-                return require "widgets/objectivetracker"
-            end)
+    -- Use challenge's check_progress function to determine contribution
+    local obj_id, amount = state.config.check_progress(player, event_name, event_data)
 
-            if ok and ObjectiveTracker then
-                local tracker = p.HUD.root:AddChild(ObjectiveTracker(p))
-                tracker.grass_count = obj.grass_count
-                tracker.twigs_count = obj.twigs_count
-                tracker:UpdateDisplay()
-                obj.trackers[p] = tracker
-                Log("Day One objective UI added for player: " .. tostring(p))
+    if obj_id and amount and amount > 0 then
+        -- Find target for this objective
+        local target = 0
+        for _, obj in ipairs(state.config.objectives) do
+            if obj.id == obj_id then
+                target = obj.target
+                break
             end
+        end
+
+        -- Update shared progress
+        state.progress[obj_id] = math.min(target, (state.progress[obj_id] or 0) + amount)
+        Log(string.format("Challenge progress: %s = %d", obj_id, state.progress[obj_id]))
+
+        -- Update all player UIs
+        UpdateAllChallengeTrackers()
+
+        -- Check if all objectives complete
+        local all_complete = true
+        for _, obj in ipairs(state.config.objectives) do
+            if (state.progress[obj.id] or 0) < obj.target then
+                all_complete = false
+                break
+            end
+        end
+
+        if all_complete then
+            state.completed = true
+            Log("Challenge COMPLETE: " .. state.config.title)
         end
     end
-    Log("Day One objective started for all players!")
 end
 
--- Make it globally accessible for cursed box
-GLOBAL.rawset(GLOBAL, "StartDayOneObjective", StartDayOneObjective)
-Log("StartDayOneObjective registered globally!")
+-- Make StartChallenge globally accessible (for cursed box, etc.)
+GLOBAL.rawset(GLOBAL, "StartChallenge", StartChallenge)
+Log("Challenge system registered!")
 
+-- Set up event tracking for all players
 AddPlayerPostInit(function(player)
-    -- Track item pickups for shared objective
-    player:ListenForEvent("itemget", function(inst, data)
-        local obj = GetSharedObjective()
-        if obj and not obj.completed then
-            local item = data.item
-            if item then
-                local prefab = item.prefab
-                if prefab == "cutgrass" then
-                    obj.grass_count = math.min(10, obj.grass_count + 1)
-                    Log("Grass collected! Total: " .. obj.grass_count)
-                    UpdateAllTrackers()
-                elseif prefab == "twigs" then
-                    obj.twigs_count = math.min(10, obj.twigs_count + 1)
-                    Log("Twigs collected! Total: " .. obj.twigs_count)
-                    UpdateAllTrackers()
-                end
-            end
-        end
+    -- Add tracker if challenge already active (player joined mid-challenge)
+    player:DoTaskInTime(1, function()
+        AddChallengeTrackerToPlayer(player)
     end)
+
+    -- Track events defined in active challenge
+    local tracked_events = {"itemget", "killed", "picksomething", "finishedwork"}
+
+    for _, event_name in ipairs(tracked_events) do
+        player:ListenForEvent(event_name, function(inst, data)
+            OnChallengeEvent(player, event_name, data)
+        end)
+    end
 end)
 
 -- Log successful initialization

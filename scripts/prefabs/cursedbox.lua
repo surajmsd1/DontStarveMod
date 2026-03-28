@@ -30,13 +30,12 @@ local function OnActivate(inst, doer)
         doer.components.talker:Say("This feels... dangerous!")
     end
 
-    -- Start Day One objective
-    print("[Cursed Box] Checking for StartDayOneObjective...")
-    if rawget(_G, "StartDayOneObjective") then
-        print("[Cursed Box] Found! Calling StartDayOneObjective")
-        _G.StartDayOneObjective(doer)
+    -- Start a challenge (data-driven system)
+    print("[Cursed Box] Starting challenge...")
+    if rawget(_G, "StartChallenge") then
+        _G.StartChallenge("day_one")  -- Can be any challenge ID from challenge_data.lua
     else
-        print("[Cursed Box] StartDayOneObjective NOT FOUND in _G")
+        print("[Cursed Box] StartChallenge NOT FOUND")
     end
 
     -- Drop loot after delay
