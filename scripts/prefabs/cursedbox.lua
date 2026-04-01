@@ -30,14 +30,6 @@ local function OnActivate(inst, doer)
         doer.components.talker:Say("This feels... dangerous!")
     end
 
-    -- Start a challenge (data-driven system)
-    print("[Cursed Box] Starting challenge...")
-    if rawget(_G, "StartChallenge") then
-        _G.StartChallenge("day_one")  -- Can be any challenge ID from challenge_data.lua
-    else
-        print("[Cursed Box] StartChallenge NOT FOUND")
-    end
-
     -- Drop loot after delay
     inst:DoTaskInTime(3.0, function()
         local x, y, z = inst.Transform:GetWorldPosition()
