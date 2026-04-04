@@ -40,9 +40,8 @@ local function EnterScoutMode(inst, doer)
     doer:ListenForEvent("performaction", doer._scout_pickup_listener)
 
     -- Trigger overlay on client
-    if doer.HUD then
-        doer:PushEvent("enterscoutmode")
-    end
+    print("[Lookout Tower] Pushing enterscoutmode event, HUD exists: " .. tostring(doer.HUD ~= nil))
+    doer:PushEvent("enterscoutmode")
 
     -- Map reveal + distance tracking
     doer._scout_reveal_task = doer:DoPeriodicTask(0.2, function()
@@ -159,7 +158,12 @@ local function fn()
     inst.entity:AddTransform()
     inst.entity:AddAnimState()
     inst.entity:AddSoundEmitter()
+    inst.entity:AddMiniMapEntity()
     inst.entity:AddNetwork()
+
+    -- Map icon - spotlight
+    inst.MiniMapEntity:SetIcon("winona_spotlight.png")
+    inst.MiniMapEntity:SetPriority(5)
 
     -- Use pig house as base
     inst.AnimState:SetBank("pig_house")

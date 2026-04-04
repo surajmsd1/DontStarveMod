@@ -1,6 +1,9 @@
 -- Mystery Box Mod - Main Entry Point
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
+-- Version - UPDATE THIS ON EVERY CHANGE
+local MOD_VERSION = "DEV-3.5.1"
+
 -- Safer logging function with verbose mode
 local VERBOSE = true
 local function Log(msg)
@@ -13,7 +16,16 @@ local function LogVerbose(msg)
     end
 end
 
-Log("Mod loading...")
+Log("Mod loading... Version: " .. MOD_VERSION)
+
+-- Announce version when player spawns into world
+AddPlayerPostInit(function(player)
+    player:DoTaskInTime(2, function()
+        if player == GLOBAL.ThePlayer and player.components.talker then
+            GLOBAL.TheNet:Announce("[Mystery Box] Version " .. MOD_VERSION .. " loaded!")
+        end
+    end)
+end)
 
 -- Register all prefabs
 PrefabFiles = {
@@ -682,12 +694,63 @@ end)
 -- LOOKOUT TOWER: Scout mode overlay and zoom
 -- =============================================================================
 
--- Add overlay when entering scout mode
+-- Add overlay when entering scout mode (check for tag instead of event)
 AddPlayerPostInit(function(player)
+    -- Poll for scouting tag since server events don't reach client
+    player:DoPeriodicTask(0.5, function()
+        local is_scouting = player:HasTag("scouting")
+        local has_overlay = player._scout_overlay ~= nil
+
+        if is_scouting and not has_overlay then
+            -- Create overlay
+            if player.HUD and player.HUD.root then
+                local ScoutOverlay = require "widgets/scoutoverlay"
+                player._scout_overlay = player.HUD.root:AddChild(ScoutOverlay(player))
+                Log("Scout overlay created!")
+
+                -- Zoom out
+                if GLOBAL.TheCamera then
+                    player._scout_original_zoom = GLOBAL.TheCamera.distance
+                    GLOBAL.TheCamera:SetDistance(player._scout_original_zoom * 2.5)
+                end
+
+                -- Hide clouds/fog overlays
+                if player.HUD.clouds then
+                    player.HUD.clouds:Hide()
+                end
+                if player.HUD.over then
+                    player.HUD.over:Hide()
+                end
+            end
+        elseif not is_scouting and has_overlay then
+            -- Remove overlay
+            player._scout_overlay:Kill()
+            player._scout_overlay = nil
+            Log("Scout overlay removed!")
+
+            -- Restore zoom
+            if player._scout_original_zoom and GLOBAL.TheCamera then
+                GLOBAL.TheCamera:SetDistance(player._scout_original_zoom)
+                player._scout_original_zoom = nil
+            end
+
+            -- Restore clouds/fog
+            if player.HUD and player.HUD.clouds then
+                player.HUD.clouds:Show()
+            end
+            if player.HUD and player.HUD.over then
+                player.HUD.over:Show()
+            end
+        end
+    end)
+
+    -- Keep original event listeners as backup
     player:ListenForEvent("enterscoutmode", function()
-        if player.HUD then
+        Log("enterscoutmode event fired!")
+        if player.HUD and player.HUD.root and not player._scout_overlay then
             local ScoutOverlay = require "widgets/scoutoverlay"
             player._scout_overlay = player.HUD.root:AddChild(ScoutOverlay(player))
+            Log("Scout overlay created via event!")
 
             -- Zoom out (2.5 = much farther away)
             if GLOBAL.TheCamera then

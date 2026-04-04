@@ -119,11 +119,11 @@ local ScoutOverlay = Class(Widget, function(self, owner)
     self.barHeight = barHeight
     self.barY = barY
     self.distPct = 0
+    self.maxDistance = 150  -- Must match prefab SCOUT_MAX_DISTANCE
 
-    -- Listen for distance updates
-    self.owner:ListenForEvent("scoutdistance", function(inst, data)
-        self:UpdateDistanceBar(data.pct, data.distance)
-    end)
+    -- Store starting position for distance calc
+    local x, y, z = self.owner.Transform:GetWorldPosition()
+    self.startPos = {x = x, z = z}
 
     self:StartUpdating()
 end)
@@ -164,6 +164,15 @@ function ScoutOverlay:OnUpdate(dt)
 
     local x, y, z = self.owner.Transform:GetWorldPosition()
     self.coords:SetString(string.format("X: %.0f  Z: %.0f", x, z))
+
+    -- Calculate distance from start position
+    if self.startPos then
+        local dx = x - self.startPos.x
+        local dz = z - self.startPos.z
+        local dist = math.sqrt(dx * dx + dz * dz)
+        local pct = math.min(1, dist / self.maxDistance)
+        self:UpdateDistanceBar(pct, dist)
+    end
 end
 
 return ScoutOverlay
