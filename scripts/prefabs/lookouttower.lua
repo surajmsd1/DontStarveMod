@@ -39,9 +39,8 @@ local function EnterScoutMode(inst, doer)
     doer:ListenForEvent("itemget", doer._scout_pickup_listener)
     doer:ListenForEvent("performaction", doer._scout_pickup_listener)
 
-    -- Trigger overlay on client
-    print("[Lookout Tower] Pushing enterscoutmode event, HUD exists: " .. tostring(doer.HUD ~= nil))
-    doer:PushEvent("enterscoutmode")
+    -- Overlay is handled by client-side polling in modmain.lua
+    -- (server can't directly call client UI functions)
 
     -- Map reveal + distance tracking
     doer._scout_reveal_task = doer:DoPeriodicTask(0.2, function()
@@ -63,11 +62,21 @@ local function EnterScoutMode(inst, doer)
             doer:PushEvent("scoutdistance", {distance = dist, max = SCOUT_MAX_DISTANCE, pct = pct})
 
             -- Force drop-in if too far
-            if dist >= SCOUT_MAX_DISTANCE then
+            if dist >= SCOUT_MAX_DISTANCE and not doer._scout_exiting then
+                doer._scout_exiting = true
                 if doer.components.talker then
                     doer.components.talker:Say("Too far! Dropping in!")
                 end
-                ExitScoutMode(doer, false)
+                -- Use longer delay and check validity
+                doer:DoTaskInTime(0.1, function()
+                    doer._scout_exiting = nil
+                    if doer:IsValid() and doer:HasTag("scouting") then
+                        -- Call the same global function that SPACE uses
+                        if rawget(_G, "LookoutTowerExitScout") then
+                            _G.LookoutTowerExitScout(doer, false)
+                        end
+                    end
+                end)
             end
         end
     end)
@@ -104,10 +113,8 @@ local function ExitScoutMode(doer, teleport_back)
         doer._scout_pickup_listener = nil
     end
 
-    -- Trigger overlay removal on client
-    if doer.HUD then
-        doer:PushEvent("exitscoutmode")
-    end
+    -- Overlay removal is handled by client-side polling in modmain.lua
+    -- (server can't directly call client UI functions)
 
     doer.components.locomotor.runspeed = doer._scout_original_speed or 8
     doer.components.locomotor.walkspeed = 4

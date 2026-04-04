@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-3.5.1"
+local MOD_VERSION = "DEV-3.5.6"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
@@ -694,116 +694,73 @@ end)
 -- LOOKOUT TOWER: Scout mode overlay and zoom
 -- =============================================================================
 
--- Add overlay when entering scout mode (check for tag instead of event)
+-- Create scout overlay for a player
+local function CreateScoutOverlay(player)
+    if player._scout_overlay then return end
+    if not player.HUD or not player.HUD.root then return end
+
+    local ScoutOverlay = require "widgets/scoutoverlay"
+    player._scout_overlay = player.HUD.root:AddChild(ScoutOverlay(player))
+    Log("Scout overlay created!")
+
+    -- Zoom out
+    if GLOBAL.TheCamera then
+        player._scout_original_zoom = GLOBAL.TheCamera.distance
+        GLOBAL.TheCamera:SetDistance(player._scout_original_zoom * 2.5)
+    end
+
+    -- Hide clouds/fog
+    if player.HUD.clouds then player.HUD.clouds:Hide() end
+    if player.HUD.over then player.HUD.over:Hide() end
+end
+
+-- Destroy scout overlay for a player
+local function DestroyScoutOverlay(player)
+    if not player._scout_overlay then return end
+
+    player._scout_overlay:Kill()
+    player._scout_overlay = nil
+    Log("Scout overlay removed!")
+
+    -- Restore zoom
+    if player._scout_original_zoom and GLOBAL.TheCamera then
+        GLOBAL.TheCamera:SetDistance(player._scout_original_zoom)
+        player._scout_original_zoom = nil
+    end
+
+    -- Restore clouds/fog
+    if player.HUD then
+        if player.HUD.clouds then player.HUD.clouds:Show() end
+        if player.HUD.over then player.HUD.over:Show() end
+    end
+end
+
+-- Expose globally so prefab can call directly (instant, no polling needed)
+GLOBAL.rawset(GLOBAL, "LookoutTowerEnterOverlay", function()
+    if GLOBAL.ThePlayer then
+        CreateScoutOverlay(GLOBAL.ThePlayer)
+    end
+end)
+
+GLOBAL.rawset(GLOBAL, "LookoutTowerExitOverlay", function()
+    if GLOBAL.ThePlayer then
+        DestroyScoutOverlay(GLOBAL.ThePlayer)
+    end
+end)
+
+-- Poll for scouting tag on local player only
 AddPlayerPostInit(function(player)
-    -- Poll for scouting tag since server events don't reach client
     player:DoPeriodicTask(0.5, function()
+        -- Only run on local player (ThePlayer)
+        if player ~= GLOBAL.ThePlayer then return end
+
         local is_scouting = player:HasTag("scouting")
         local has_overlay = player._scout_overlay ~= nil
 
         if is_scouting and not has_overlay then
-            -- Create overlay
-            if player.HUD and player.HUD.root then
-                local ScoutOverlay = require "widgets/scoutoverlay"
-                player._scout_overlay = player.HUD.root:AddChild(ScoutOverlay(player))
-                Log("Scout overlay created!")
-
-                -- Zoom out
-                if GLOBAL.TheCamera then
-                    player._scout_original_zoom = GLOBAL.TheCamera.distance
-                    GLOBAL.TheCamera:SetDistance(player._scout_original_zoom * 2.5)
-                end
-
-                -- Hide clouds/fog overlays
-                if player.HUD.clouds then
-                    player.HUD.clouds:Hide()
-                end
-                if player.HUD.over then
-                    player.HUD.over:Hide()
-                end
-            end
+            CreateScoutOverlay(player)
         elseif not is_scouting and has_overlay then
-            -- Remove overlay
-            player._scout_overlay:Kill()
-            player._scout_overlay = nil
-            Log("Scout overlay removed!")
-
-            -- Restore zoom
-            if player._scout_original_zoom and GLOBAL.TheCamera then
-                GLOBAL.TheCamera:SetDistance(player._scout_original_zoom)
-                player._scout_original_zoom = nil
-            end
-
-            -- Restore clouds/fog
-            if player.HUD and player.HUD.clouds then
-                player.HUD.clouds:Show()
-            end
-            if player.HUD and player.HUD.over then
-                player.HUD.over:Show()
-            end
-        end
-    end)
-
-    -- Keep original event listeners as backup
-    player:ListenForEvent("enterscoutmode", function()
-        Log("enterscoutmode event fired!")
-        if player.HUD and player.HUD.root and not player._scout_overlay then
-            local ScoutOverlay = require "widgets/scoutoverlay"
-            player._scout_overlay = player.HUD.root:AddChild(ScoutOverlay(player))
-            Log("Scout overlay created via event!")
-
-            -- Zoom out (2.5 = much farther away)
-            if GLOBAL.TheCamera then
-                player._scout_original_zoom = GLOBAL.TheCamera.distance
-                GLOBAL.TheCamera:SetDistance(player._scout_original_zoom * 2.5)
-            end
-
-            -- Hide clouds/overlays
-            if player.HUD.overlays then
-                player._scout_overlays_alpha = {}
-                for name, overlay in pairs(player.HUD.overlays) do
-                    if overlay.SetAlpha then
-                        player._scout_overlays_alpha[name] = true
-                        overlay:SetAlpha(0)
-                    elseif overlay.Hide then
-                        overlay:Hide()
-                    end
-                end
-            end
-            -- Also try the over layer
-            if player.HUD.over then
-                player.HUD.over:Hide()
-            end
-        end
-    end)
-
-    player:ListenForEvent("exitscoutmode", function()
-        if player._scout_overlay then
-            player._scout_overlay:Kill()
-            player._scout_overlay = nil
-        end
-
-        -- Restore zoom
-        if player._scout_original_zoom and GLOBAL.TheCamera then
-            GLOBAL.TheCamera:SetDistance(player._scout_original_zoom)
-            player._scout_original_zoom = nil
-        end
-
-        -- Restore overlays
-        if player.HUD then
-            if player.HUD.overlays and player._scout_overlays_alpha then
-                for name, overlay in pairs(player.HUD.overlays) do
-                    if overlay.SetAlpha then
-                        overlay:SetAlpha(1)
-                    elseif overlay.Show then
-                        overlay:Show()
-                    end
-                end
-                player._scout_overlays_alpha = nil
-            end
-            if player.HUD.over then
-                player.HUD.over:Show()
-            end
+            DestroyScoutOverlay(player)
         end
     end)
 end)
