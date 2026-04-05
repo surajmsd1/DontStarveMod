@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-4.0.1"
+local MOD_VERSION = "DEV-4.1.1"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
@@ -854,6 +854,152 @@ GLOBAL.TheInput:AddKeyDownHandler(GLOBAL.KEY_SPACE, function()
     if player and player:HasTag("scouting") then
         SendModRPCToServer(MOD_RPC["MysteryBox"]["ExitScoutMode"])
     end
+end)
+
+-- =============================================================================
+-- LOOKOUT TOWER SPAWNING SYSTEM
+-- =============================================================================
+-- Spawns one lookout tower per biome/node at world load
+-- Uses TheWorld.topology.nodes for biome center positions
+-- TheWorld.topology.ids contains biome names
+-- =============================================================================
+
+local TOWER_SPAWN_ENABLED = true
+
+-- Main biome/task prefixes - these are the actual large areas, not tiny rooms
+-- Rooms have names like "Forest:Clearing", we want one tower per task prefix
+local MAIN_BIOME_PREFIXES = {
+    "Clearing",      -- Spawn/start area
+    "Forest",        -- Forest biome
+    "Marsh",         -- Swamp
+    "Plain",         -- Savanna/grasslands
+    "Rocky",         -- Rock biome
+    "Graveyard",     -- Graveyard
+    "Chess",         -- Chess biome
+    "Wormhole",      -- Wormhole area
+    "MoonIsland",    -- Lunar island
+    "Oasis",         -- Desert oasis
+    "Desert",        -- Desert
+    "Beefalo",       -- Beefalo plains
+    "Beefalow",      -- Alt spelling
+    "Pigs",          -- Pig king area
+    "Walrus",        -- Walrus camps
+    "Spiders",       -- Spider areas
+    "Mosaic",        -- Mixed biome
+    "Ocean",         -- Skip ocean
+}
+
+local function GetBiomePrefix(roomId)
+    -- Extract the task/biome name from room ID
+    -- Room IDs look like: "Forest:Forest hunters camp" or "Marsh:Tentacle hell"
+    if not roomId then return nil end
+    local prefix = roomId:match("^([^:]+)")
+    return prefix or roomId
+end
+
+local function SpawnTowersAtBiomeCenters()
+    if not GLOBAL.TheWorld.ismastersim then return end
+    if not TOWER_SPAWN_ENABLED then return end
+
+    local topology = GLOBAL.TheWorld.topology
+    if not topology or not topology.nodes or not topology.ids then
+        Log("ERROR: No topology data available for tower spawning")
+        return
+    end
+
+    local nodes = topology.nodes
+    local ids = topology.ids
+
+    Log("=== ANALYZING WORLD TOPOLOGY ===")
+    Log("Total nodes: " .. #nodes)
+
+    -- First pass: find unique biome prefixes and pick best node for each
+    local biomeData = {}  -- biomePrefix -> {nodes = {}, bestNode = nil}
+
+    for i, node in ipairs(nodes) do
+        local roomId = ids[i]
+        local prefix = GetBiomePrefix(roomId)
+
+        if prefix and prefix ~= "Blank" and not prefix:match("Ocean") then
+            if not biomeData[prefix] then
+                biomeData[prefix] = {nodes = {}, bestNode = nil, bestIndex = nil}
+            end
+            table.insert(biomeData[prefix].nodes, {node = node, index = i, roomId = roomId})
+        end
+    end
+
+    -- Second pass: for each biome, pick the most central/representative node
+    local uniqueBiomes = {}
+    for prefix, data in pairs(biomeData) do
+        -- Pick the first valid node for now (could improve to pick center)
+        for _, nodeData in ipairs(data.nodes) do
+            local node = nodeData.node
+            local x = node.x or (node.cent and node.cent[1])
+            local z = node.y or (node.cent and node.cent[2])
+
+            if x and z then
+                local isPassable = GLOBAL.TheWorld.Map:IsPassableAtPoint(x, 0, z)
+                local isOcean = GLOBAL.TheWorld.Map:IsOceanAtPoint(x, 0, z)
+
+                if isPassable and not isOcean then
+                    data.bestNode = node
+                    data.bestIndex = nodeData.index
+                    data.bestRoomId = nodeData.roomId
+                    table.insert(uniqueBiomes, prefix)
+                    break
+                end
+            end
+        end
+    end
+
+    Log("Found " .. #uniqueBiomes .. " unique biomes")
+
+    -- Third pass: spawn towers at biome centers
+    local spawned = 0
+    for _, prefix in ipairs(uniqueBiomes) do
+        local data = biomeData[prefix]
+        if data.bestNode then
+            local node = data.bestNode
+            local x = node.x or (node.cent and node.cent[1])
+            local z = node.y or (node.cent and node.cent[2])
+
+            local tower = GLOBAL.SpawnPrefab("lookouttower")
+            if tower then
+                tower.Transform:SetPosition(x, 0, z)
+                tower.biome_name = prefix
+                tower.biome_index = data.bestIndex
+                tower.room_id = data.bestRoomId
+
+                spawned = spawned + 1
+                Log("Tower #" .. spawned .. ": " .. prefix .. " at (" .. math.floor(x) .. ", " .. math.floor(z) .. ")")
+            end
+        end
+    end
+
+    Log("=== TOWER SPAWNING COMPLETE ===")
+    Log("Spawned: " .. spawned .. " towers for " .. #uniqueBiomes .. " biomes")
+
+    if spawned > 0 then
+        GLOBAL.TheNet:Announce("[Mystery Box] " .. spawned .. " Lookout Towers placed across the world!")
+    end
+end
+
+-- Spawn towers after world generation is complete
+AddPrefabPostInit("world", function(world)
+    if not GLOBAL.TheWorld.ismastersim then return end
+
+    -- Wait for world to fully load before spawning towers
+    world:DoTaskInTime(1, function()
+        -- Only spawn on fresh worlds or when towers don't exist yet
+        -- Check if towers already exist to avoid duplicates on reload
+        local existingTowers = GLOBAL.TheSim:FindEntities(0, 0, 0, 10000, {"lookouttower"})
+        if existingTowers and #existingTowers > 0 then
+            Log("Towers already exist (" .. #existingTowers .. "), skipping spawn")
+            return
+        end
+
+        SpawnTowersAtBiomeCenters()
+    end)
 end)
 
 -- Log successful initialization
