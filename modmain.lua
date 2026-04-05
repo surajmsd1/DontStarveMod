@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-3.7.4"
+local MOD_VERSION = "DEV-4.0.1"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
@@ -691,100 +691,113 @@ AddPrefabPostInit("world", function(world)
 end)
 
 -- =============================================================================
--- LOOKOUT TOWER: Scout Mode System (SIMPLIFIED)
+-- LOOKOUT TOWER: Scout Mode System
+-- =============================================================================
+-- Server: EnterScoutMode (prefab) adds "scouting" tag
+-- Client: Polls tag → shows/hides overlay
+-- Exit: SPACE (RPC), max distance, or interaction → all call ExitScoutMode
+--
+-- =============================================================================
+-- DST CLIENT/SERVER ARCHITECTURE - LESSONS LEARNED
 -- =============================================================================
 --
--- HOW IT WORKS:
--- 1. Player clicks tower → EnterScoutMode (in prefab, SERVER side)
--- 2. Server adds "scouting" tag → tag syncs to client automatically
--- 3. Client polls for tag → shows/hides overlay
--- 4. Player presses SPACE → client sends RPC → server runs ExitScoutMode
--- 5. Server removes "scouting" tag → syncs to client → overlay removed
+-- DST runs as SERVER + CLIENT even in single player.
 --
--- EXIT TRIGGERS (all call the same server function):
--- - SPACE key (via RPC from client)
--- - Max distance reached (server periodic task)
--- - Any interaction like pickup/attack (server event listener)
+-- SERVER has:
+--   - player.components (locomotor, health, inventory, etc.)
+--   - Prefab logic, game state, entity spawning
+--   - TheWorld.ismastersim = true
+--
+-- CLIENT has:
+--   - player.HUD (UI widgets, health bars, overlays)
+--   - TheInput (keyboard/mouse handling)
+--   - TheCamera (zoom, position)
+--   - TheWorld.ismastersim = false
+--
+-- TAGS sync automatically between server and client!
+--   Server: player:AddTag("scouting")
+--   Client: player:HasTag("scouting") returns true (after sync)
+--
+-- EVENTS do NOT sync! Use tags or RPC instead.
+--
+-- RPC (Remote Procedure Call) for client→server communication:
+--   Server: AddModRPCHandler("ModName", "FunctionName", function(player) ... end)
+--   Client: SendModRPCToServer(MOD_RPC["ModName"]["FunctionName"])
+--
+-- Common pattern for UI that responds to server state:
+--   1. Server adds/removes a tag
+--   2. Client polls for tag with DoPeriodicTask
+--   3. Client shows/hides UI based on tag
 -- =============================================================================
 
--- =============================================================================
--- EXIT SCOUT MODE - Single function, runs on SERVER only
--- =============================================================================
+-- Exit scout mode (SERVER only)
 local function ExitScoutMode(player, message)
-    -- Guard: must be scouting
     if not player or not player:HasTag("scouting") then
         return false
     end
 
-    Log("ExitScoutMode: " .. (message or "dropping in"))
-
-    -- 1. Cancel the map reveal task
+    -- Cancel tasks
     if player._scout_task then
         player._scout_task:Cancel()
         player._scout_task = nil
     end
 
-    -- 2. Remove the action listener
+    -- Remove listeners
     if player._scout_action_listener then
         player:RemoveEventCallback("performaction", player._scout_action_listener)
         player._scout_action_listener = nil
     end
 
-    -- 2. Restore player speed
+    -- Restore player state
     if player.components.locomotor then
         player.components.locomotor.runspeed = player._scout_original_speed or 8
         player.components.locomotor.walkspeed = 4
     end
-
-    -- 3. Restore appearance
     player.AnimState:SetMultColour(1, 1, 1, 1)
-
-    -- 4. Remove tag (this triggers client to remove overlay)
     player:RemoveTag("scouting")
 
-    -- 5. Say message
+    -- Feedback
     if player.components.talker and message then
         player.components.talker:Say(message)
     end
 
-    -- 6. Reset tower so it can be used again
+    -- Reset tower and start cooldown
     local tower = player._scout_tower
-    Log("ExitScoutMode: tower = " .. tostring(tower))
     if tower and tower:IsValid() then
         tower.scout_active = false
         tower.scout_player = nil
-        -- Re-enable the activatable component
+        tower.cooldown_until = GLOBAL.GetTime() + 300  -- 5 minutes
+        -- Re-enable via component property (this also adds the tag)
         if tower.components.activatable then
-            tower.components.activatable.inactive = false
+            tower.components.activatable.inactive = true
         end
-        Log("ExitScoutMode: tower reset - scout_active = false")
-    else
-        Log("ExitScoutMode: WARNING - tower is nil or invalid!")
     end
 
-    -- 7. Cleanup player state
+    -- Cleanup
     player._scout_original_speed = nil
     player._scout_tower = nil
     player._scout_tower_pos = nil
 
+    Log("Scout mode OFF")
     return true
 end
 
--- Make available to prefab
+-- Expose to prefab
 GLOBAL.MysteryBox_ExitScoutMode = ExitScoutMode
 
--- RPC: Client presses SPACE → this runs on server
+-- RPC for SPACE key
 AddModRPCHandler("MysteryBox", "ExitScoutMode", function(player)
-    Log("RPC: ExitScoutMode from " .. tostring(player))
     ExitScoutMode(player, "Dropped in!")
 end)
 
 -- =============================================================================
--- CLIENT-SIDE: Overlay management (polls for "scouting" tag)
+-- CLIENT: Overlay management
 -- =============================================================================
+
 local function CreateScoutOverlay(player)
-    if player._scout_overlay then return end
-    if not player.HUD or not player.HUD.root then return end
+    if player._scout_overlay or not player.HUD or not player.HUD.root then
+        return
+    end
 
     local ScoutOverlay = require "widgets/scoutoverlay"
     player._scout_overlay = player.HUD.root:AddChild(ScoutOverlay(player))
@@ -798,8 +811,6 @@ local function CreateScoutOverlay(player)
     -- Hide fog
     if player.HUD.clouds then player.HUD.clouds:Hide() end
     if player.HUD.over then player.HUD.over:Hide() end
-
-    Log("Scout overlay created")
 end
 
 local function DestroyScoutOverlay(player)
@@ -819,11 +830,9 @@ local function DestroyScoutOverlay(player)
         if player.HUD.clouds then player.HUD.clouds:Show() end
         if player.HUD.over then player.HUD.over:Show() end
     end
-
-    Log("Scout overlay destroyed")
 end
 
--- Poll for scouting tag on client
+-- Poll for scouting tag
 AddPlayerPostInit(function(player)
     player:DoPeriodicTask(0.3, function()
         if player ~= GLOBAL.ThePlayer then return end
@@ -839,11 +848,10 @@ AddPlayerPostInit(function(player)
     end)
 end)
 
--- SPACE key sends RPC to server
+-- SPACE key exits scout mode
 GLOBAL.TheInput:AddKeyDownHandler(GLOBAL.KEY_SPACE, function()
     local player = GLOBAL.ThePlayer
     if player and player:HasTag("scouting") then
-        Log("SPACE pressed - sending RPC")
         SendModRPCToServer(MOD_RPC["MysteryBox"]["ExitScoutMode"])
     end
 end)
