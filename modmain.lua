@@ -984,6 +984,50 @@ local function SpawnTowersAtBiomeCenters()
     end
 end
 
+-- Remove all existing lookout towers from the world
+local function RemoveAllTowers()
+    local existing = GLOBAL.TheSim:FindEntities(0, 0, 0, 10000, {"lookouttower"})
+    local count = 0
+    if existing then
+        for _, tower in ipairs(existing) do
+            if tower:IsValid() then
+                tower:Remove()
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+-- Chat command: /spawntowers [force]
+-- Spawns lookout towers across all biomes. Use "force" to replace existing towers.
+AddUserCommand("spawntowers", {
+    prettyname = "Spawn Lookout Towers",
+    desc = "Spawns lookout towers across biomes. Use 'force' to replace existing ones.",
+    permission = GLOBAL.COMMAND_PERMISSION.ADMIN,
+    slash = true,
+    usermenu = false,
+    serverfn = function(params, caller)
+        local force = params.rest and params.rest:lower():match("force")
+
+        local existing = GLOBAL.TheSim:FindEntities(0, 0, 0, 10000, {"lookouttower"})
+        local existingCount = existing and #existing or 0
+
+        if existingCount > 0 and not force then
+            GLOBAL.TheNet:Announce("[Mystery Box] " .. existingCount .. " towers already exist. Use '/spawntowers force' to replace them.")
+            return
+        end
+
+        if force and existingCount > 0 then
+            local removed = RemoveAllTowers()
+            Log("Removed " .. removed .. " existing towers")
+        end
+
+        SpawnTowersAtBiomeCenters()
+    end,
+    params = {"rest"},
+})
+
 -- Spawn towers after world generation is complete
 AddPrefabPostInit("world", function(world)
     if not GLOBAL.TheWorld.ismastersim then return end
