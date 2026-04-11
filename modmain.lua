@@ -865,15 +865,28 @@ end)
 -- =============================================================================
 
 local DST_CHARACTERS = {
+    -- Playable
     "Wilson", "Willow", "Wolfgang", "Wendy", "WX-78",
     "Wickerbottom", "Woodie", "Wes", "Maxwell", "Wigfrid",
     "Webber", "Winona", "Warly", "Wormwood", "Wurt",
     "Walter", "Wanda", "Wonkey",
+    -- NPCs
+    "Pearl", "Charlie", "Antlion", "Pig King", "Merm King",
+    "Catcoon", "Glommer", "Chester", "Hutch", "Crabby",
+    -- Bosses & mobs
+    "Bearger", "Deerclops", "Moose", "Dragonfly",
+    "Treeguard", "Spider Queen", "Klaus", "Toadstool",
+    "Beefalo", "Tallbird", "Koalefant", "Volt Goat",
+    "Hound", "Tentacle", "Merm", "Bunnyman", "Pigman",
+    -- Lunar & shadow
+    "Celestial Champion", "Ancient Guardian", "Fuelweaver",
+    "Gestalts", "Terrorclaw", "Nightmare",
 }
 
 local FALLBACK_LANDMARKS = {
     "Outpost", "Watchtower", "Overlook", "Perch",
     "Garrison", "Spire", "Beacon", "Pinnacle",
+    "Hideout", "Roost", "Den", "Keep",
 }
 
 -- Track which character names have been used this session to avoid repeats
