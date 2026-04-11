@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-4.1.1"
+local MOD_VERSION = "DEV-4.2.0"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
@@ -857,6 +857,184 @@ GLOBAL.TheInput:AddKeyDownHandler(GLOBAL.KEY_SPACE, function()
 end)
 
 -- =============================================================================
+-- TOWER NAMING SYSTEM
+-- =============================================================================
+-- Each tower gets a name like "Willow's Marsh" or "Wolfgang's Outpost"
+-- Format: [DST Character]'s [Biome] — or fallback if no biome available
+-- Name stored as tag "towername_X" for client sync
+-- =============================================================================
+
+local DST_CHARACTERS = {
+    -- Playable
+    "Wilson", "Willow", "Wolfgang", "Wendy", "WX-78",
+    "Wickerbottom", "Woodie", "Wes", "Maxwell", "Wigfrid",
+    "Webber", "Winona", "Warly", "Wormwood", "Wurt",
+    "Walter", "Wanda", "Wonkey",
+    -- NPCs
+    "Pearl", "Charlie", "Antlion", "Pig King", "Merm King",
+    "Catcoon", "Glommer", "Chester", "Hutch", "Crabby",
+    -- Bosses & mobs
+    "Bearger", "Deerclops", "Moose", "Dragonfly",
+    "Treeguard", "Spider Queen", "Klaus", "Toadstool",
+    "Beefalo", "Tallbird", "Koalefant", "Volt Goat",
+    "Hound", "Tentacle", "Merm", "Bunnyman", "Pigman",
+    -- Lunar & shadow
+    "Celestial Champion", "Ancient Guardian", "Fuelweaver",
+    "Gestalts", "Terrorclaw", "Nightmare",
+}
+
+local FALLBACK_LANDMARKS = {
+    "Outpost", "Watchtower", "Overlook", "Perch",
+    "Garrison", "Spire", "Beacon", "Pinnacle",
+    "Hideout", "Roost", "Den", "Keep",
+}
+
+-- Track which character names have been used this session to avoid repeats
+local usedCharacters = {}
+
+local function PickRandomCharacter()
+    -- If we've used all characters, reset
+    if #usedCharacters >= #DST_CHARACTERS then
+        usedCharacters = {}
+    end
+
+    local available = {}
+    for _, name in ipairs(DST_CHARACTERS) do
+        local used = false
+        for _, u in ipairs(usedCharacters) do
+            if u == name then used = true break end
+        end
+        if not used then
+            table.insert(available, name)
+        end
+    end
+
+    local pick = available[math.random(#available)]
+    table.insert(usedCharacters, pick)
+    return pick
+end
+
+local function GenerateTowerName(biome)
+    local character = PickRandomCharacter()
+    if biome and biome ~= "" then
+        return character .. "'s " .. biome
+    else
+        local landmark = FALLBACK_LANDMARKS[math.random(#FALLBACK_LANDMARKS)]
+        return character .. "'s " .. landmark
+    end
+end
+
+-- Apply a generated name to a tower and sync via tag
+local function NameTower(tower, biome)
+    local name = GenerateTowerName(biome)
+    tower.tower_display_name = name
+    -- Store name as tag for client sync (replace spaces/special chars for tag safety)
+    local safeTag = "towername_" .. name:gsub("[^%w]", "_")
+    tower:AddTag(safeTag)
+    return name
+end
+
+-- Expose for use by spawning system
+GLOBAL.MysteryBox_NameTower = NameTower
+
+-- =============================================================================
+-- TOWER NETWORK: Right-Click Fast Travel
+-- =============================================================================
+-- Right click a tower → Tower Network screen (replaces examine)
+-- Shows discovered towers with distance/direction, click to teleport
+-- Tower discovery: walk within 20 units of a tower to discover it
+-- Teleport cost: 50 sanity
+-- =============================================================================
+
+local TELEPORT_SANITY_COST = 50
+local TOWER_DISCOVER_RADIUS = 20
+
+-- RPC: Teleport to target tower
+AddModRPCHandler("MysteryBox", "TowerTeleport", function(player, target)
+    if not player or not target or not target:HasTag("lookouttower") then
+        return
+    end
+
+    -- Must be near a tower to teleport
+    local px, _, pz = player.Transform:GetWorldPosition()
+    local nearby = GLOBAL.TheSim:FindEntities(px, 0, pz, 5, {"lookouttower"})
+    if not nearby or #nearby == 0 then
+        if player.components.talker then
+            player.components.talker:Say("I need to be at a tower first.")
+        end
+        return
+    end
+
+    -- Must have discovered the target
+    if not target:HasTag("tower_discovered") then
+        if player.components.talker then
+            player.components.talker:Say("I haven't found that tower yet.")
+        end
+        return
+    end
+
+    -- Check sanity cost
+    if player.components.sanity then
+        local currentSanity = player.components.sanity:GetPercent() * player.components.sanity.max
+        if currentSanity < TELEPORT_SANITY_COST then
+            if player.components.talker then
+                player.components.talker:Say("I'm too frazzled to travel... need more sanity.")
+            end
+            return
+        end
+        player.components.sanity:DoDelta(-TELEPORT_SANITY_COST)
+    end
+
+    -- Teleport
+    local tx, ty, tz = target.Transform:GetWorldPosition()
+    player.Transform:SetPosition(tx, ty, tz)
+
+    local name = target.tower_display_name or target.biome_name or "Unknown"
+    if player.components.talker then
+        player.components.talker:Say("Arrived at " .. name .. "!")
+    end
+
+    Log("Player teleported to " .. name)
+end)
+
+-- Custom right-click action (replaces examine on towers)
+local TOWERMENU = AddAction("TOWERMENU", "Tower Network", function(act)
+    return true
+end)
+TOWERMENU.rmb = true
+TOWERMENU.distance = 4
+TOWERMENU.priority = 10
+
+-- Action string shown on hover
+GLOBAL.STRINGS.ACTIONS.TOWERMENU = "Tower Network"
+
+-- Register for right-click on towers. The high priority + explicit check
+-- ensures this replaces the default "Examine" action on towers only.
+AddComponentAction("SCENE", "inspectable", function(inst, doer, actions, right)
+    if right and inst:HasTag("lookouttower") then
+        table.insert(actions, GLOBAL.ACTIONS.TOWERMENU)
+    end
+end)
+
+-- Stategraph handlers (short arm-raise animation)
+AddStategraphActionHandler("wilson", GLOBAL.ActionHandler(GLOBAL.ACTIONS.TOWERMENU, "give"))
+AddStategraphActionHandler("wilson_client", GLOBAL.ActionHandler(GLOBAL.ACTIONS.TOWERMENU, "give"))
+
+-- Client: open Tower Network screen when action fires
+AddPlayerPostInit(function(player)
+    player:ListenForEvent("performaction", function(_, data)
+        if player ~= GLOBAL.ThePlayer then return end
+        if data and data.action and data.action.action == GLOBAL.ACTIONS.TOWERMENU then
+            local tower = data.action.target
+            if tower then
+                local TowerNetworkScreen = require "screens/towernetworkscreen"
+                GLOBAL.TheFrontEnd:PushScreen(TowerNetworkScreen(player, tower))
+            end
+        end
+    end)
+end)
+
+-- =============================================================================
 -- LOOKOUT TOWER SPAWNING SYSTEM
 -- =============================================================================
 -- Spawns one lookout tower per biome/node at world load
@@ -969,9 +1147,11 @@ local function SpawnTowersAtBiomeCenters()
                 tower.biome_name = prefix
                 tower.biome_index = data.bestIndex
                 tower.room_id = data.bestRoomId
+                tower:AddTag("biome_" .. prefix)
+                local displayName = NameTower(tower, prefix)
 
                 spawned = spawned + 1
-                Log("Tower #" .. spawned .. ": " .. prefix .. " at (" .. math.floor(x) .. ", " .. math.floor(z) .. ")")
+                Log("Tower #" .. spawned .. ": " .. displayName .. " at (" .. math.floor(x) .. ", " .. math.floor(z) .. ")")
             end
         end
     end
@@ -1043,6 +1223,44 @@ AddPrefabPostInit("world", function(world)
         end
 
         SpawnTowersAtBiomeCenters()
+    end)
+end)
+
+-- =============================================================================
+-- TOWER DISCOVERY SYSTEM
+-- =============================================================================
+-- Players discover towers by walking within 20 units.
+-- Discovered towers get "tower_discovered" tag (syncs to client).
+-- Only discovered towers appear in the Tower Network menu.
+-- =============================================================================
+
+AddPrefabPostInit("world", function(world)
+    if not GLOBAL.TheWorld.ismastersim then return end
+
+    world:DoPeriodicTask(2, function()
+        local towers = GLOBAL.TheSim:FindEntities(0, 0, 0, 10000, {"lookouttower"})
+        if not towers then return end
+
+        for _, tower in ipairs(towers) do
+            if tower:IsValid() and not tower:HasTag("tower_discovered") then
+                local tx, _, tz = tower.Transform:GetWorldPosition()
+                for _, player in ipairs(GLOBAL.AllPlayers) do
+                    if player:IsValid() then
+                        local px, _, pz = player.Transform:GetWorldPosition()
+                        local dist = math.sqrt((tx - px)^2 + (tz - pz)^2)
+                        if dist < TOWER_DISCOVER_RADIUS then
+                            tower:AddTag("tower_discovered")
+                            local name = tower.tower_display_name or tower.biome_name or "Unknown"
+                            if player.components.talker then
+                                player.components.talker:Say("Discovered " .. name .. "!")
+                            end
+                            Log("Tower discovered: " .. name)
+                            break
+                        end
+                    end
+                end
+            end
+        end
     end)
 end)
 
