@@ -23,20 +23,19 @@ local function AngleToCardinal(angle)
     end
 end
 
-local BIOME_NAMES = {
-    "Clearing", "Forest", "Marsh", "Plain", "Rocky",
-    "Graveyard", "Chess", "Wormhole", "MoonIsland", "Oasis",
-    "Desert", "Beefalo", "Beefalow", "Pigs", "Walrus",
-    "Spiders", "Mosaic",
-}
-
 local function GetTowerDisplayName(tower)
-    for _, name in ipairs(BIOME_NAMES) do
-        if tower:HasTag("biome_" .. name) then
-            return name
-        end
+    -- Read the generated name from tags (format: "towername_Wilson_s_Marsh")
+    -- Tags sync server→client automatically
+    local tags = tower:GetDebugString and tower:GetDebugString() or ""
+    local tagName = tags:match("towername_([%w_]+)")
+    if tagName then
+        -- Convert back: underscores → spaces, restore apostrophe
+        local name = tagName:gsub("_", " ")
+        -- Fix "s " back to "'s " (e.g. "Wilson s Marsh" → "Wilson's Marsh")
+        name = name:gsub("(%w) s ", "%1's ")
+        return name
     end
-    return "Lookout"
+    return "Lookout Tower"
 end
 
 local TowerNetworkScreen = Class(Screen, function(self, owner, tower)
@@ -71,9 +70,9 @@ local TowerNetworkScreen = Class(Screen, function(self, owner, tower)
 
     -- Title
     local towerName = GetTowerDisplayName(tower)
-    self.title = self.root:AddChild(Text(TITLEFONT, 28))
+    self.title = self.root:AddChild(Text(TITLEFONT, 26))
     self.title:SetPosition(0, panelH/2 - 30)
-    self.title:SetString(string.upper(towerName) .. " TOWER")
+    self.title:SetString(string.upper(towerName))
     self.title:SetColour(0.9, 0.8, 0.6, 1)
 
     -- Divider
@@ -167,9 +166,9 @@ function TowerNetworkScreen:BuildTowerList()
         rowBg:SetSize(320, rowH - 4)
 
         -- Tower name (left aligned)
-        local nameText = row:AddChild(Text(BUTTONFONT, 18))
+        local nameText = row:AddChild(Text(BUTTONFONT, 17))
         nameText:SetPosition(-80, 4)
-        nameText:SetString(data.name .. " Tower")
+        nameText:SetString(data.name)
         nameText:SetColour(0.9, 0.85, 0.7, 1)
 
         -- Distance + direction (right side)

@@ -213,6 +213,17 @@ local function fn()
     inst.scout_player = nil
     inst.cooldown_until = nil
 
+    -- Auto-name if not named by the biome spawner after a short delay
+    inst:DoTaskInTime(2, function()
+        if not inst.tower_display_name then
+            local NameTower = rawget(_G, "MysteryBox_NameTower")
+            if NameTower then
+                local name = NameTower(inst, nil)
+                print("[Lookout Tower] Auto-named: " .. name)
+            end
+        end
+    end)
+
     -- Cooldown visual update
     inst:DoPeriodicTask(1, function()
         if inst.cooldown_until then

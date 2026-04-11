@@ -857,6 +857,74 @@ GLOBAL.TheInput:AddKeyDownHandler(GLOBAL.KEY_SPACE, function()
 end)
 
 -- =============================================================================
+-- TOWER NAMING SYSTEM
+-- =============================================================================
+-- Each tower gets a name like "Willow's Marsh" or "Wolfgang's Outpost"
+-- Format: [DST Character]'s [Biome] — or fallback if no biome available
+-- Name stored as tag "towername_X" for client sync
+-- =============================================================================
+
+local DST_CHARACTERS = {
+    "Wilson", "Willow", "Wolfgang", "Wendy", "WX-78",
+    "Wickerbottom", "Woodie", "Wes", "Maxwell", "Wigfrid",
+    "Webber", "Winona", "Warly", "Wormwood", "Wurt",
+    "Walter", "Wanda", "Wonkey",
+}
+
+local FALLBACK_LANDMARKS = {
+    "Outpost", "Watchtower", "Overlook", "Perch",
+    "Garrison", "Spire", "Beacon", "Pinnacle",
+}
+
+-- Track which character names have been used this session to avoid repeats
+local usedCharacters = {}
+
+local function PickRandomCharacter()
+    -- If we've used all characters, reset
+    if #usedCharacters >= #DST_CHARACTERS then
+        usedCharacters = {}
+    end
+
+    local available = {}
+    for _, name in ipairs(DST_CHARACTERS) do
+        local used = false
+        for _, u in ipairs(usedCharacters) do
+            if u == name then used = true break end
+        end
+        if not used then
+            table.insert(available, name)
+        end
+    end
+
+    local pick = available[math.random(#available)]
+    table.insert(usedCharacters, pick)
+    return pick
+end
+
+local function GenerateTowerName(biome)
+    local character = PickRandomCharacter()
+    if biome and biome ~= "" then
+        return character .. "'s " .. biome
+    else
+        local landmark = FALLBACK_LANDMARKS[math.random(#FALLBACK_LANDMARKS)]
+        return character .. "'s " .. landmark
+    end
+end
+
+-- Apply a generated name to a tower and sync via tag
+local function NameTower(tower, biome)
+    local name = GenerateTowerName(biome)
+    tower.tower_display_name = name
+    -- Store name as tag for client sync (replace spaces/special chars for tag safety)
+    local safeTag = "towername_" .. name:gsub("[^%w]", "_")
+    tower:AddTag(safeTag)
+    return name
+end
+
+-- Expose for use by spawning system
+GLOBAL.MysteryBox_NameTower = NameTower
+
+-- =============================================================================
 -- TOWER NETWORK: Right-Click Fast Travel
 -- =============================================================================
 -- Right click a tower → Tower Network screen (replaces examine)
@@ -908,12 +976,12 @@ AddModRPCHandler("MysteryBox", "TowerTeleport", function(player, target)
     local tx, ty, tz = target.Transform:GetWorldPosition()
     player.Transform:SetPosition(tx, ty, tz)
 
-    local name = target.biome_name or "Unknown"
+    local name = target.tower_display_name or target.biome_name or "Unknown"
     if player.components.talker then
-        player.components.talker:Say("Arrived at " .. name .. " Tower!")
+        player.components.talker:Say("Arrived at " .. name .. "!")
     end
 
-    Log("Player teleported to " .. name .. " tower")
+    Log("Player teleported to " .. name)
 end)
 
 -- Custom right-click action (replaces examine on towers)
@@ -1066,10 +1134,11 @@ local function SpawnTowersAtBiomeCenters()
                 tower.biome_name = prefix
                 tower.biome_index = data.bestIndex
                 tower.room_id = data.bestRoomId
-                tower:AddTag("biome_" .. prefix)  -- Syncs to client for display name
+                tower:AddTag("biome_" .. prefix)
+                local displayName = NameTower(tower, prefix)
 
                 spawned = spawned + 1
-                Log("Tower #" .. spawned .. ": " .. prefix .. " at (" .. math.floor(x) .. ", " .. math.floor(z) .. ")")
+                Log("Tower #" .. spawned .. ": " .. displayName .. " at (" .. math.floor(x) .. ", " .. math.floor(z) .. ")")
             end
         end
     end
@@ -1168,9 +1237,9 @@ AddPrefabPostInit("world", function(world)
                         local dist = math.sqrt((tx - px)^2 + (tz - pz)^2)
                         if dist < TOWER_DISCOVER_RADIUS then
                             tower:AddTag("tower_discovered")
-                            local name = tower.biome_name or "Unknown"
+                            local name = tower.tower_display_name or tower.biome_name or "Unknown"
                             if player.components.talker then
-                                player.components.talker:Say("Discovered " .. name .. " Tower!")
+                                player.components.talker:Say("Discovered " .. name .. "!")
                             end
                             Log("Tower discovered: " .. name)
                             break
