@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-4.1.1"
+local MOD_VERSION = "DEV-4.2.0"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
