@@ -802,6 +802,13 @@ local function CreateScoutOverlay(player)
     local ScoutOverlay = require "widgets/scoutoverlay"
     player._scout_overlay = player.HUD.root:AddChild(ScoutOverlay(player))
 
+    -- Keep the minimap and other HUD controls rendering above the overlay.
+    -- The mask is now semi-transparent, but this guarantees third-party
+    -- minimap mods stay readable regardless of their draw order.
+    if player.HUD.controls and player.HUD.controls.MoveToFront then
+        player.HUD.controls:MoveToFront()
+    end
+
     -- Zoom out
     if GLOBAL.TheCamera then
         player._scout_original_zoom = GLOBAL.TheCamera.distance

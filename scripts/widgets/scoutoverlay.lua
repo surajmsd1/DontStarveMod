@@ -15,30 +15,33 @@ local ScoutOverlay = Class(Widget, function(self, owner)
     self:SetScaleMode(SCALEMODE_PROPORTIONAL)
 
     -- Circle parameters
-    local circleRadius = 280  -- Visible circle radius (bigger = more visible)
+    local circleRadius = 380  -- Visible circle radius (bigger = more visible)
     local bigSize = 2000      -- Big enough to cover any screen
+    -- Mask alpha: < 1.0 lets world + other HUD (e.g. minimap mods) show through
+    -- while still giving a "looking through a spyglass" vignette darkening.
+    local maskAlpha = 0.7
 
     -- Top bar (above the circle)
     self.top = self:AddChild(Image("images/global.xml", "square.tex"))
-    self.top:SetTint(0, 0, 0, 1)
+    self.top:SetTint(0, 0, 0, maskAlpha)
     self.top:SetSize(bigSize, bigSize)
     self.top:SetPosition(0, circleRadius + bigSize/2)
 
     -- Bottom bar (below the circle)
     self.bottom = self:AddChild(Image("images/global.xml", "square.tex"))
-    self.bottom:SetTint(0, 0, 0, 1)
+    self.bottom:SetTint(0, 0, 0, maskAlpha)
     self.bottom:SetSize(bigSize, bigSize)
     self.bottom:SetPosition(0, -(circleRadius + bigSize/2))
 
     -- Left bar (left of the circle)
     self.left = self:AddChild(Image("images/global.xml", "square.tex"))
-    self.left:SetTint(0, 0, 0, 1)
+    self.left:SetTint(0, 0, 0, maskAlpha)
     self.left:SetSize(bigSize, bigSize)
     self.left:SetPosition(-(circleRadius + bigSize/2), 0)
 
     -- Right bar (right of the circle)
     self.right = self:AddChild(Image("images/global.xml", "square.tex"))
-    self.right:SetTint(0, 0, 0, 1)
+    self.right:SetTint(0, 0, 0, maskAlpha)
     self.right:SetSize(bigSize, bigSize)
     self.right:SetPosition(circleRadius + bigSize/2, 0)
 
@@ -48,25 +51,25 @@ local ScoutOverlay = Class(Widget, function(self, owner)
     local cornerDist = circleRadius * 0.92
 
     self.tl = self:AddChild(Image("images/global.xml", "square.tex"))
-    self.tl:SetTint(0, 0, 0, 1)
+    self.tl:SetTint(0, 0, 0, maskAlpha)
     self.tl:SetSize(cornerSize, cornerSize)
     self.tl:SetPosition(-cornerDist, cornerDist)
     self.tl:SetRotation(45)
 
     self.tr = self:AddChild(Image("images/global.xml", "square.tex"))
-    self.tr:SetTint(0, 0, 0, 1)
+    self.tr:SetTint(0, 0, 0, maskAlpha)
     self.tr:SetSize(cornerSize, cornerSize)
     self.tr:SetPosition(cornerDist, cornerDist)
     self.tr:SetRotation(45)
 
     self.bl = self:AddChild(Image("images/global.xml", "square.tex"))
-    self.bl:SetTint(0, 0, 0, 1)
+    self.bl:SetTint(0, 0, 0, maskAlpha)
     self.bl:SetSize(cornerSize, cornerSize)
     self.bl:SetPosition(-cornerDist, -cornerDist)
     self.bl:SetRotation(45)
 
     self.br = self:AddChild(Image("images/global.xml", "square.tex"))
-    self.br:SetTint(0, 0, 0, 1)
+    self.br:SetTint(0, 0, 0, maskAlpha)
     self.br:SetSize(cornerSize, cornerSize)
     self.br:SetPosition(cornerDist, -cornerDist)
     self.br:SetRotation(45)
