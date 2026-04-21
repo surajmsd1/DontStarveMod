@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-4.18.0"
+local MOD_VERSION = "DEV-4.19.0"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
@@ -805,15 +805,24 @@ local function CreateScoutOverlay(player)
     local ScoutOverlay = require "widgets/scoutoverlay"
     player._scout_overlay = player.HUD.root:AddChild(ScoutOverlay(player))
 
-    -- Move HUD controls on top of overlay (so minimap stays visible)
-    if player.HUD.controls then
-        player.HUD.root:AddChild(player.HUD.controls)
+    -- Move overlay to back (lowest z-order) so everything else draws on top
+    player._scout_overlay:MoveToBack()
+
+    -- Also re-add all existing HUD children to move them on top of overlay
+    local children_to_move = {}
+    for _, child in pairs(player.HUD.root.children or {}) do
+        if child ~= player._scout_overlay then
+            table.insert(children_to_move, child)
+        end
+    end
+    for _, child in ipairs(children_to_move) do
+        player.HUD.root:AddChild(child)
     end
 
     -- Zoom out more (4x for better scouting view)
     if GLOBAL.TheCamera then
         player._scout_original_zoom = GLOBAL.TheCamera.distance
-        GLOBAL.TheCamera:SetDistance(player._scout_original_zoom * 3.55)
+        GLOBAL.TheCamera:SetDistance(player._scout_original_zoom * 3)
     end
 
     -- Hide fog
@@ -1008,6 +1017,16 @@ end
 AddPlayerPostInit(function(player)
     player.discovered_towers = {}
     player:DoTaskInTime(2, RebuildDiscoveredTowers)
+
+    -- Add tower indicator to HUD (client only)
+    player:DoTaskInTime(1, function()
+        if player.HUD and player == GLOBAL.ThePlayer then
+            local TowerIndicator = require "widgets/towerindicator"
+            player._tower_indicator = player.HUD.controls:AddChild(TowerIndicator(player))
+            player._tower_indicator:SetPosition(0, 200)  -- Above center of screen
+            Log("Tower indicator added to HUD")
+        end
+    end)
 end)
 
 -- RPC: Discover a tower (adds tag on server + stores on player)
@@ -1241,6 +1260,57 @@ local function RevealBiomeOutline(player, x, z)
 end
 
 GLOBAL.MysteryBox_RevealBiomeOutline = RevealBiomeOutline
+
+-- Reveal coastlines (land/water boundaries) near a position
+local function RevealCoastlineNear(player, cx, cz, radius)
+    if not player or not player.player_classified then return end
+    local explorer = player.player_classified.MapExplorer
+    if not explorer then return end
+
+    local world = GLOBAL.TheWorld
+    local map = world and world.Map
+    if not map then return end
+
+    local STEP = 8  -- Check every 8 units
+    local REVEAL_RADIUS = 15
+    local count = 0
+
+    for x = cx - radius, cx + radius, STEP do
+        for z = cz - radius, cz + radius, STEP do
+            local dist = math.sqrt((x - cx)^2 + (z - cz)^2)
+            if dist <= radius then
+                local tile = map:GetTileAtPoint(x, 0, z)
+                local is_ocean = tile == GLOBAL.WORLD_TILES.OCEAN_COASTAL
+                    or tile == GLOBAL.WORLD_TILES.OCEAN_SWELL
+                    or tile == GLOBAL.WORLD_TILES.OCEAN_ROUGH
+                    or tile == GLOBAL.WORLD_TILES.OCEAN_BRINEPOOL
+                    or tile == GLOBAL.WORLD_TILES.OCEAN_HAZARDOUS
+                    or tile == GLOBAL.WORLD_TILES.OCEAN_WATERLOG
+                    or (tile and tostring(tile):find("OCEAN"))
+
+                if is_ocean then
+                    -- Check adjacent tiles for land
+                    for _, offset in ipairs({{STEP,0}, {-STEP,0}, {0,STEP}, {0,-STEP}}) do
+                        local nx, nz = x + offset[1], z + offset[2]
+                        local ntile = map:GetTileAtPoint(nx, 0, nz)
+                        local is_land = ntile and ntile ~= GLOBAL.WORLD_TILES.IMPASSABLE
+                            and not (tostring(ntile):find("OCEAN"))
+                        if is_land then
+                            explorer:RevealArea(x, 0, z, REVEAL_RADIUS)
+                            count = count + 1
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if count > 0 then
+        Log("Revealed " .. count .. " coastline points")
+    end
+end
+
+GLOBAL.MysteryBox_RevealCoastlineNear = RevealCoastlineNear
 
 -- =============================================================================
 -- LOOKOUT TOWER SPAWNING SYSTEM

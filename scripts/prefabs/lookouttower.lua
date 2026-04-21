@@ -82,6 +82,12 @@ local function EnterScoutMode(inst, doer)
         RevealBiomeOutline(doer, tx, tz)
     end
 
+    -- Also reveal coastlines near the tower
+    local RevealCoastlineNear = rawget(_G, "MysteryBox_RevealCoastlineNear")
+    if RevealCoastlineNear then
+        RevealCoastlineNear(doer, tx, tz, 200)  -- 200 unit radius
+    end
+
     -- Periodic task: map reveal + distance check
     doer._scout_task = doer:DoPeriodicTask(0.2, function()
         if not doer:HasTag("scouting") then return end
