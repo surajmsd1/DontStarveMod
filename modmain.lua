@@ -1121,6 +1121,19 @@ GLOBAL.TheInput:AddMouseButtonHandler(function(button, down)
     if target and target:HasTag("lookouttower") then
         -- Auto-discover this tower via server RPC
         SendModRPCToServer(MOD_RPC["MysteryBox"]["DiscoverTower"], target)
+
+        -- Also add to CLIENT player's table directly (server RPC won't update client)
+        if not player.discovered_towers then
+            player.discovered_towers = {}
+        end
+        local x, _, z = target.Transform:GetWorldPosition()
+        local key = math.floor(x) .. "_" .. math.floor(z)
+        if not player.discovered_towers[key] then
+            local name = target.tower_display_name or "Lookout Tower"
+            player.discovered_towers[key] = { x = x, z = z, name = name }
+            Log("Tower added to client: " .. name)
+        end
+
         GLOBAL.TheFrontEnd:PushScreen(TowerNetworkScreen(player, target))
     end
 end)
