@@ -85,7 +85,7 @@ local function EnterScoutMode(inst, doer)
     -- Also reveal coastlines near the tower
     local RevealCoastlineNear = rawget(_G, "MysteryBox_RevealCoastlineNear")
     if RevealCoastlineNear then
-        RevealCoastlineNear(doer, tx, tz, 200)  -- 200 unit radius
+        RevealCoastlineNear(doer, tx, tz, 150)  -- 150 unit radius
     end
 
     -- Periodic task: map reveal + distance check
