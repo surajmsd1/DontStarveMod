@@ -41,7 +41,6 @@ local assets = {
 -- Config
 local SCOUT_SPEED = 30
 local SCOUT_REVEAL_RADIUS = 50
-local SCOUT_LOCAL_REVEAL_RADIUS = 80
 local SCOUT_MAX_DISTANCE = 150
 local SCOUT_COOLDOWN = 300  -- 5 minutes
 
@@ -76,12 +75,8 @@ local function EnterScoutMode(inst, doer)
     doer.AnimState:SetMultColour(0.3, 0.3, 0.3, 0.5)
     doer:AddTag("scouting")
 
-    -- Big one-shot reveal around the tower itself
-    if doer.player_classified and doer.player_classified.MapExplorer then
-        doer.player_classified.MapExplorer:RevealArea(tx, 0, tz, SCOUT_LOCAL_REVEAL_RADIUS)
-    end
-
-    -- Reveal the outline of the biome the tower sits in
+    -- Reveal the outline of the biome the tower sits in (falls back to a
+    -- large circle if topology data isn't available).
     local RevealBiomeOutline = rawget(_G, "MysteryBox_RevealBiomeOutline")
     if RevealBiomeOutline then
         RevealBiomeOutline(doer, tx, tz)
