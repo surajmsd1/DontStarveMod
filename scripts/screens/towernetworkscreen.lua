@@ -7,7 +7,7 @@ local Text = require "widgets/text"
 local ImageButton = require "widgets/imagebutton"
 local Image = require "widgets/image"
 
-local TELEPORT_SANITY_COST = 50
+local TELEPORT_SANITY_COST = 15
 
 local function AngleToCardinal(angle)
     local deg = math.deg(angle)

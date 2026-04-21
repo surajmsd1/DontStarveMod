@@ -963,7 +963,7 @@ GLOBAL.MysteryBox_NameTower = NameTower
 -- Teleport cost: 50 sanity
 -- =============================================================================
 
-local TELEPORT_SANITY_COST = 50
+local TELEPORT_SANITY_COST = 15
 local TOWER_DISCOVER_RADIUS = 20
 
 -- Store discovered towers on player so it's accessible from client screens

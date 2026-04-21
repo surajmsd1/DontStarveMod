@@ -42,7 +42,7 @@ local assets = {
 local SCOUT_SPEED = 30
 local SCOUT_REVEAL_RADIUS = 50
 local SCOUT_MAX_DISTANCE = 150
-local SCOUT_COOLDOWN = 300  -- 5 minutes
+local SCOUT_COOLDOWN = 60  -- 1 minute
 
 -- =============================================================================
 -- SCOUT MODE
