@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-4.3.0"
+local MOD_VERSION = "DEV-4.18.0"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
@@ -17,6 +17,9 @@ local function LogVerbose(msg)
 end
 
 Log("Mod loading... Version: " .. MOD_VERSION)
+
+-- Load custom screen at startup (plain require works for mod scripts/)
+local TowerNetworkScreen = require("screens/towernetworkscreen")
 
 -- Announce version when player spawns into world (runs on server, only on Master not Caves)
 AddSimPostInit(function()
@@ -802,10 +805,15 @@ local function CreateScoutOverlay(player)
     local ScoutOverlay = require "widgets/scoutoverlay"
     player._scout_overlay = player.HUD.root:AddChild(ScoutOverlay(player))
 
-    -- Zoom out
+    -- Move HUD controls on top of overlay (so minimap stays visible)
+    if player.HUD.controls then
+        player.HUD.root:AddChild(player.HUD.controls)
+    end
+
+    -- Zoom out more (4x for better scouting view)
     if GLOBAL.TheCamera then
         player._scout_original_zoom = GLOBAL.TheCamera.distance
-        GLOBAL.TheCamera:SetDistance(player._scout_original_zoom * 2.5)
+        GLOBAL.TheCamera:SetDistance(player._scout_original_zoom * 3.55)
     end
 
     -- Hide fog
@@ -949,7 +957,112 @@ GLOBAL.MysteryBox_NameTower = NameTower
 local TELEPORT_SANITY_COST = 50
 local TOWER_DISCOVER_RADIUS = 20
 
--- RPC: Teleport to target tower
+-- Store discovered towers on player so it's accessible from client screens
+-- Format: player.discovered_towers = { [key] = {x=, z=, name=} }
+
+local function AddDiscoveredTower(tower, player)
+    if not tower or not tower:IsValid() then return end
+    player = player or GLOBAL.ThePlayer
+    if not player then return end
+
+    -- Initialize table on player if needed
+    if not player.discovered_towers then
+        player.discovered_towers = {}
+    end
+
+    local x, _, z = tower.Transform:GetWorldPosition()
+    local key = math.floor(x) .. "_" .. math.floor(z)
+
+    if player.discovered_towers[key] then return end -- Already known
+
+    local name = tower.tower_display_name or "Lookout Tower"
+
+    player.discovered_towers[key] = {
+        x = x,
+        z = z,
+        name = name,
+    }
+    Log("Tower added to network: " .. name .. " at " .. math.floor(x) .. "," .. math.floor(z))
+end
+
+-- Rebuild discovered towers from existing tags (after c_reset or world load)
+local function RebuildDiscoveredTowers()
+    local player = GLOBAL.ThePlayer
+    if not player then return end
+    if not player.discovered_towers then
+        player.discovered_towers = {}
+    end
+    local count = 0
+    for k, ent in pairs(GLOBAL.Ents) do
+        if ent:IsValid() and ent:HasTag("lookouttower") and ent:HasTag("tower_discovered") then
+            AddDiscoveredTower(ent, player)
+            count = count + 1
+        end
+    end
+    if count > 0 then
+        Log("Rebuilt " .. count .. " discovered towers from tags")
+    end
+end
+
+-- Call rebuild when player spawns
+AddPlayerPostInit(function(player)
+    player.discovered_towers = {}
+    player:DoTaskInTime(2, RebuildDiscoveredTowers)
+end)
+
+-- RPC: Discover a tower (adds tag on server + stores on player)
+AddModRPCHandler("MysteryBox", "DiscoverTower", function(player, target)
+    Log("DiscoverTower RPC called, target=" .. tostring(target))
+    if not target or not target:HasTag("lookouttower") then
+        Log("DiscoverTower RPC: invalid target or not a tower")
+        return
+    end
+    if not target:HasTag("tower_discovered") then
+        target:AddTag("tower_discovered")
+        AddDiscoveredTower(target, player)
+        Log("Tower discovered via RPC: " .. (target.tower_display_name or "Unknown"))
+    else
+        -- Already discovered but maybe not in table yet
+        AddDiscoveredTower(target, player)
+        Log("Tower already discovered, ensuring in table")
+    end
+end)
+
+-- RPC: Teleport to position (for tower network UI)
+AddModRPCHandler("MysteryBox", "TowerTeleportPos", function(player, targetX, targetZ)
+    if not player then return end
+
+    -- Must be near a tower to teleport
+    local px, _, pz = player.Transform:GetWorldPosition()
+    local nearby = GLOBAL.TheSim:FindEntities(px, 0, pz, 5, {"lookouttower"})
+    if not nearby or #nearby == 0 then
+        if player.components.talker then
+            player.components.talker:Say("I need to be at a tower first.")
+        end
+        return
+    end
+
+    -- Check sanity cost
+    if player.components.sanity then
+        local currentSanity = player.components.sanity:GetPercent() * player.components.sanity.max
+        if currentSanity < TELEPORT_SANITY_COST then
+            if player.components.talker then
+                player.components.talker:Say("I'm too frazzled to travel...")
+            end
+            return
+        end
+        player.components.sanity:DoDelta(-TELEPORT_SANITY_COST)
+    end
+
+    -- Teleport!
+    player.Transform:SetPosition(targetX, 0, targetZ)
+    if player.components.talker then
+        player.components.talker:Say("Arrived!")
+    end
+    Log("Player teleported to " .. math.floor(targetX) .. "," .. math.floor(targetZ))
+end)
+
+-- RPC: Teleport to target tower (legacy)
 AddModRPCHandler("MysteryBox", "TowerTeleport", function(player, target)
     if not player or not target or not target:HasTag("lookouttower") then
         return
@@ -997,19 +1110,17 @@ AddModRPCHandler("MysteryBox", "TowerTeleport", function(player, target)
     Log("Player teleported to " .. name)
 end)
 
--- Right-click on a tower opens the Tower Network screen. We handle this at
--- the input layer instead of the action system so it can't conflict with
--- the built-in examine action on inspectable entities.
+-- Right-click on a tower opens the Tower Network screen
 GLOBAL.TheInput:AddMouseButtonHandler(function(button, down)
     if button ~= GLOBAL.MOUSEBUTTON_RIGHT or not down then return end
     local player = GLOBAL.ThePlayer
     if not player or not player.HUD then return end
-    -- Only fire during normal HUD gameplay, not when a menu is already open
     if GLOBAL.TheFrontEnd:GetActiveScreen() ~= player.HUD then return end
 
     local target = GLOBAL.TheInput:GetWorldEntityUnderMouse()
     if target and target:HasTag("lookouttower") then
-        local TowerNetworkScreen = require "screens/towernetworkscreen"
+        -- Auto-discover this tower via server RPC
+        SendModRPCToServer(MOD_RPC["MysteryBox"]["DiscoverTower"], target)
         GLOBAL.TheFrontEnd:PushScreen(TowerNetworkScreen(player, target))
     end
 end)
@@ -1334,6 +1445,7 @@ AddPrefabPostInit("world", function(world)
                         local dist = math.sqrt((tx - px)^2 + (tz - pz)^2)
                         if dist < TOWER_DISCOVER_RADIUS then
                             tower:AddTag("tower_discovered")
+                            AddDiscoveredTower(tower, player)
                             local name = tower.tower_display_name or tower.biome_name or "Unknown"
                             if player.components.talker then
                                 player.components.talker:Say("Discovered " .. name .. "!")

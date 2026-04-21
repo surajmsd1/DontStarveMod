@@ -1,8 +1,7 @@
 -- Tower Network Screen
 -- Right-click a lookout tower to see discovered towers and fast-travel
--- Uses Screen (not Widget) so buttons capture mouse input
 
-local Screen = require "screens/screen"
+local Screen = require "widgets/screen"
 local Widget = require "widgets/widget"
 local Text = require "widgets/text"
 local ImageButton = require "widgets/imagebutton"
@@ -25,16 +24,36 @@ end
 
 local function GetTowerDisplayName(tower)
     -- Read the generated name from tags (format: "towername_Wilson_s_Marsh")
-    -- Tags sync server→client automatically
-    local tags = tower:GetDebugString and tower:GetDebugString() or ""
-    local tagName = tags:match("towername_([%w_]+)")
-    if tagName then
-        -- Convert back: underscores → spaces, restore apostrophe
-        local name = tagName:gsub("_", " ")
-        -- Fix "s " back to "'s " (e.g. "Wilson s Marsh" → "Wilson's Marsh")
-        name = name:gsub("(%w) s ", "%1's ")
-        return name
+    -- Iterate through common tag prefixes to find towername
+    local testTags = {
+        "towername_North", "towername_South", "towername_East", "towername_West",
+        "towername_Central", "towername_Far", "towername_Deep", "towername_Hidden"
+    }
+
+    -- Try to find any towername tag by checking HasTag with common prefixes
+    -- This is a workaround since we can't iterate all tags on client
+    if tower.GetDebugString then
+        local debugStr = tower:GetDebugString()
+        if debugStr then
+            local tagName = debugStr:match("towername_([%w_]+)")
+            if tagName then
+                local name = tagName:gsub("_", " ")
+                name = name:gsub("(%w) s ", "%1's ")
+                print("[TowerNetwork] Found name via debug: " .. name)
+                return name
+            end
+        end
     end
+
+    -- Fallback: use position-based name
+    if tower.Transform then
+        local x, _, z = tower.Transform:GetWorldPosition()
+        local dir = ""
+        if z > 0 then dir = dir .. "North " else dir = dir .. "South " end
+        if x > 0 then dir = dir .. "East" else dir = dir .. "West" end
+        return dir .. " Tower"
+    end
+
     return "Lookout Tower"
 end
 
@@ -114,25 +133,38 @@ end)
 
 function TowerNetworkScreen:BuildTowerList()
     local px, _, pz = self.owner.Transform:GetWorldPosition()
+    local currentKey = nil
+    if self.tower and self.tower.Transform then
+        local tx, _, tz = self.tower.Transform:GetWorldPosition()
+        currentKey = math.floor(tx) .. "_" .. math.floor(tz)
+    end
 
-    local allTowers = TheSim:FindEntities(0, 0, 0, 10000, {"lookouttower"})
+    -- Read from player's discovered_towers (shared between server/client in single-player)
+    local discoveredTowers = self.owner.discovered_towers or {}
 
     local towerList = {}
-    for _, t in ipairs(allTowers) do
-        if t ~= self.tower and t:IsValid() and t:HasTag("tower_discovered") then
-            local tx, _, tz = t.Transform:GetWorldPosition()
-            local dx = tx - px
-            local dz = tz - pz
+    local count = 0
+
+    for key, data in pairs(discoveredTowers) do
+        count = count + 1
+        if key ~= currentKey then
+            local dx = data.x - px
+            local dz = data.z - pz
             local dist = math.sqrt(dx * dx + dz * dz)
             local angle = math.atan2(dz, dx)
+
             table.insert(towerList, {
-                tower = t,
-                name = GetTowerDisplayName(t),
+                key = key,
+                name = data.name,
+                x = data.x,
+                z = data.z,
                 dist = dist,
                 dir = AngleToCardinal(angle),
             })
         end
     end
+
+    print("[TowerNetwork] Discovered towers: " .. count)
     table.sort(towerList, function(a, b) return a.dist < b.dist end)
 
     if #towerList == 0 then
@@ -183,10 +215,10 @@ function TowerNetworkScreen:BuildTowerList()
         btn:SetScale(0.5)
         btn:SetText("Travel")
         btn:SetFont(BUTTONFONT)
-        local targetTower = data.tower
+        local targetX, targetZ = data.x, data.z
         btn:SetOnClick(function()
             self:Close()
-            SendModRPCToServer(MOD_RPC["MysteryBox"]["TowerTeleport"], targetTower)
+            SendModRPCToServer(MOD_RPC["MysteryBox"]["TowerTeleportPos"], targetX, targetZ)
         end)
     end
 

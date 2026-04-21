@@ -142,6 +142,12 @@ local function OnActivate(inst, doer)
     -- Re-enable via the component property (this also adds the tag)
     inst.components.activatable.inactive = true
 
+    -- Auto-discover this tower when activated
+    if not inst:HasTag("tower_discovered") then
+        inst:AddTag("tower_discovered")
+        print("[Lookout Tower] Auto-discovered via activation")
+    end
+
     -- Check cooldown
     if inst.cooldown_until and GetTime() < inst.cooldown_until then
         local remaining = math.ceil(inst.cooldown_until - GetTime())
