@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-4.2.0"
+local MOD_VERSION = "DEV-4.3.0"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
@@ -997,42 +997,126 @@ AddModRPCHandler("MysteryBox", "TowerTeleport", function(player, target)
     Log("Player teleported to " .. name)
 end)
 
--- Custom right-click action (replaces examine on towers)
-local TOWERMENU = AddAction("TOWERMENU", "Tower Network", function(act)
-    return true
-end)
-TOWERMENU.rmb = true
-TOWERMENU.distance = 4
-TOWERMENU.priority = 10
+-- Right-click on a tower opens the Tower Network screen. We handle this at
+-- the input layer instead of the action system so it can't conflict with
+-- the built-in examine action on inspectable entities.
+GLOBAL.TheInput:AddMouseButtonHandler(function(button, down)
+    if button ~= GLOBAL.MOUSEBUTTON_RIGHT or not down then return end
+    local player = GLOBAL.ThePlayer
+    if not player or not player.HUD then return end
+    -- Only fire during normal HUD gameplay, not when a menu is already open
+    if GLOBAL.TheFrontEnd:GetActiveScreen() ~= player.HUD then return end
 
--- Action string shown on hover
-GLOBAL.STRINGS.ACTIONS.TOWERMENU = "Tower Network"
-
--- Register for right-click on towers. The high priority + explicit check
--- ensures this replaces the default "Examine" action on towers only.
-AddComponentAction("SCENE", "inspectable", function(inst, doer, actions, right)
-    if right and inst:HasTag("lookouttower") then
-        table.insert(actions, GLOBAL.ACTIONS.TOWERMENU)
+    local target = GLOBAL.TheInput:GetWorldEntityUnderMouse()
+    if target and target:HasTag("lookouttower") then
+        local TowerNetworkScreen = require "screens/towernetworkscreen"
+        GLOBAL.TheFrontEnd:PushScreen(TowerNetworkScreen(player, target))
     end
 end)
 
--- Stategraph handlers (short arm-raise animation)
-AddStategraphActionHandler("wilson", GLOBAL.ActionHandler(GLOBAL.ACTIONS.TOWERMENU, "give"))
-AddStategraphActionHandler("wilson_client", GLOBAL.ActionHandler(GLOBAL.ACTIONS.TOWERMENU, "give"))
+-- =============================================================================
+-- HIDE OVERHEAD CLOUDS
+-- =============================================================================
+-- Clouds obstruct the view at high camera zoom. We permanently hide any
+-- cloud-ish entities on the world so scout mode stays clear.
 
--- Client: open Tower Network screen when action fires
-AddPlayerPostInit(function(player)
-    player:ListenForEvent("performaction", function(_, data)
-        if player ~= GLOBAL.ThePlayer then return end
-        if data and data.action and data.action.action == GLOBAL.ACTIONS.TOWERMENU then
-            local tower = data.action.target
-            if tower then
-                local TowerNetworkScreen = require "screens/towernetworkscreen"
-                GLOBAL.TheFrontEnd:PushScreen(TowerNetworkScreen(player, tower))
+local function IsCloudPrefab(name)
+    if not name then return false end
+    return string.find(name, "cloud") ~= nil
+        or string.find(name, "skybox") ~= nil
+end
+
+local function HideCloudEntity(inst)
+    if not inst or not inst.entity then return end
+    if inst.Hide then inst:Hide() end
+    if inst.AnimState then
+        inst.AnimState:SetMultColour(0, 0, 0, 0)
+    end
+end
+
+-- Known cloud-ish prefabs — if any of these don't exist in the game, the
+-- hook is a no-op, so it's safe to over-include.
+local CLOUD_PREFABS = {
+    "clouds",
+    "cloud",
+    "cloudshadow",
+    "cloud_shadow",
+    "cloudshadow_fx",
+    "skycloud",
+    "ocean_cloud",
+    "oceancloud",
+    "cloudmarker",
+}
+for _, name in ipairs(CLOUD_PREFABS) do
+    AddPrefabPostInit(name, HideCloudEntity)
+end
+
+-- Sweep any cloud entities that already exist on world init (catches things
+-- the prefab hook missed).
+AddPrefabPostInit("world", function(world)
+    world:DoTaskInTime(2, function()
+        for _, ent in pairs(GLOBAL.Ents) do
+            if ent and ent.prefab and IsCloudPrefab(ent.prefab) then
+                HideCloudEntity(ent)
             end
         end
     end)
 end)
+
+-- =============================================================================
+-- BIOME OUTLINE REVEAL
+-- =============================================================================
+-- Given a player and a world position, reveal the outline of the topology
+-- node (biome) at that position on the map. Falls back to a large circle
+-- reveal if topology data isn't available.
+
+local function RevealBiomeOutline(player, x, z)
+    if not player or not player.player_classified then return end
+    local explorer = player.player_classified.MapExplorer
+    if not explorer then return end
+
+    local world = GLOBAL.TheWorld
+    local map = world and world.Map
+    local topology = world and world.topology
+    if not map or not topology or not topology.nodes then
+        explorer:RevealArea(x, 0, z, 120)
+        return
+    end
+
+    local node_id = map:GetNodeIdAtPoint(x, 0, z)
+    local node = node_id and topology.nodes[node_id]
+    local poly = node and node.poly
+
+    if not poly or #poly < 2 then
+        explorer:RevealArea(x, 0, z, 120)
+        return
+    end
+
+    local function GetXZ(p)
+        return p[1] or p.x, p[2] or p.y or p.z
+    end
+
+    -- Reveal along each polygon edge so the outline is contiguous.
+    local STEP = 12
+    local RADIUS = 20
+    for i = 1, #poly do
+        local a = poly[i]
+        local b = poly[(i % #poly) + 1]
+        local ax, az = GetXZ(a)
+        local bx, bz = GetXZ(b)
+        if ax and az and bx and bz then
+            local dx, dz = bx - ax, bz - az
+            local dist = math.sqrt(dx * dx + dz * dz)
+            local steps = math.max(1, math.ceil(dist / STEP))
+            for s = 0, steps do
+                local t = s / steps
+                explorer:RevealArea(ax + dx * t, 0, az + dz * t, RADIUS)
+            end
+        end
+    end
+end
+
+GLOBAL.MysteryBox_RevealBiomeOutline = RevealBiomeOutline
 
 -- =============================================================================
 -- LOOKOUT TOWER SPAWNING SYSTEM
