@@ -241,7 +241,12 @@ BossEvents.FrostbiteChallenge = EventTypes.CreateEvent({
     trigger = EventTypes.TRIGGER.SEASONAL,
 
     GetAnnouncement = function()
-        return "WINTER'S WRATH! Ice hounds approach, but warm gear awaits!"
+        return "WINTER'S WRATH! Ice hounds approach in 25 seconds — grab the warm gear!"
+    end,
+
+    warning_delay = 25,
+    GetPreSpawnAnnouncement = function()
+        return "The ice hounds have arrived!"
     end,
 
     Execute = function(world, target)
@@ -277,6 +282,11 @@ BossEvents.FrogRain = EventTypes.CreateEvent({
     trigger = EventTypes.TRIGGER.SEASONAL,
 
     GetAnnouncement = function()
+        return "Croaking in the clouds... frog rain hits in 15 seconds!"
+    end,
+
+    warning_delay = 15,
+    GetPreSpawnAnnouncement = function()
         return "IT'S RAINING FROGS! Quick, grab the loot!"
     end,
 
@@ -318,7 +328,12 @@ BossEvents.HeatWave = EventTypes.CreateEvent({
     trigger = EventTypes.TRIGGER.SEASONAL,
 
     GetAnnouncement = function()
-        return "HEAT WAVE! Fire hounds approach! Grab the ice!"
+        return "HEAT WAVE! Fire hounds in 25 seconds — grab the ice!"
+    end,
+
+    warning_delay = 25,
+    GetPreSpawnAnnouncement = function()
+        return "The fire hounds are here!"
     end,
 
     Execute = function(world, target)

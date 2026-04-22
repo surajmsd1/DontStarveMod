@@ -1022,8 +1022,13 @@ AddPlayerPostInit(function(player)
     player:DoTaskInTime(1, function()
         if player.HUD and player == GLOBAL.ThePlayer then
             local TowerIndicator = require "widgets/towerindicator"
-            player._tower_indicator = player.HUD.controls:AddChild(TowerIndicator(player))
-            player._tower_indicator:SetPosition(0, 200)  -- Above center of screen
+            -- Parent to overlayroot (screen-space root above the normal HUD) so the
+            -- absolute position actually lands where we expect. The previous parent
+            -- (HUD.controls) had its own scaling/anchoring that made the indicator
+            -- drift near the edge of the screen.
+            local parent = player.HUD.overlayroot or player.HUD.root or player.HUD.controls
+            player._tower_indicator = parent:AddChild(TowerIndicator(player))
+            player._tower_indicator:SetPosition(0, 180)  -- Above center of screen
             Log("Tower indicator added to HUD")
         end
     end)
