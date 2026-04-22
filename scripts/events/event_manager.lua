@@ -148,6 +148,32 @@ function EventManager:ExecuteEvent(event, target, useDramaticPause)
         self:AnnounceToAll(announcement)
     end
 
+    -- Optional warning delay: give players time to react before hostile spawns.
+    -- Event authors opt in via `warning_delay` in their event config (see
+    -- event_types.lua). A nil/0 value preserves the original immediate behavior.
+    local warning_delay = event.warning_delay or 0
+    if warning_delay > 0 and self.world and self.world.DoTaskInTime then
+        print(string.format("[Mystery Box] Spawn delayed %ds for warning: %s",
+            warning_delay, event.name))
+        self.world:DoTaskInTime(warning_delay, function()
+            if event.GetPreSpawnAnnouncement then
+                local msg = event:GetPreSpawnAnnouncement()
+                if msg and msg ~= "" then
+                    self:AnnounceToAll(msg)
+                end
+            end
+            local success = event:Execute(self.world, target)
+            table.insert(self.eventHistory, {
+                id = event.id,
+                name = event.name,
+                day = self:GetCurrentDay(),
+                success = success,
+                time = GetTime(),
+            })
+        end)
+        return true
+    end
+
     -- Execute the event
     local success = event:Execute(self.world, target)
 

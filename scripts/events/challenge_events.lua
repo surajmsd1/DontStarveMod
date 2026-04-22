@@ -68,7 +68,12 @@ ChallengeEvents.SpiderAmbush = EventTypes.CreateEvent({
     trigger = EventTypes.TRIGGER.DAILY,
 
     GetAnnouncement = function()
-        return "WARNING: Spiders are emerging! But there's gear nearby..."
+        return "WARNING: Spiders are closing in! Gear up — they arrive in 20 seconds..."
+    end,
+
+    warning_delay = 20,
+    GetPreSpawnAnnouncement = function()
+        return "The spiders are HERE!"
     end,
 
     Execute = function(world, target)
@@ -101,7 +106,12 @@ ChallengeEvents.HoundWave = EventTypes.CreateEvent({
     trigger = EventTypes.TRIGGER.DAILY,
 
     GetAnnouncement = function()
-        return "DANGER: Hounds approach! But they guard precious gems..."
+        return "DANGER: You hear distant howls... hounds arrive in 25 seconds!"
+    end,
+
+    warning_delay = 25,
+    GetPreSpawnAnnouncement = function()
+        return "The hounds are here!"
     end,
 
     Execute = function(world, target)

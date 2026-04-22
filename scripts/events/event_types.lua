@@ -50,6 +50,15 @@ EventTypes.EventTemplate = {
     GetAnnouncement = function()
         return ""
     end,
+
+    -- Optional: seconds to wait between the announcement and the actual spawn.
+    -- Give players a chance to react before hostile mobs appear on their base.
+    -- 0 (default) means spawn immediately after the announcement.
+    warning_delay = 0,
+
+    -- Optional: follow-up announcement fired right before the event finally
+    -- executes (after warning_delay). Leave nil to skip.
+    GetPreSpawnAnnouncement = nil,
 }
 
 -- Helper function to create a new event
