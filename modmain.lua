@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-4.20.6"
+local MOD_VERSION = "DEV-4.21.1"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
@@ -769,7 +769,7 @@ local function ExitScoutMode(player, message)
     if tower and tower:IsValid() then
         tower.scout_active = false
         tower.scout_player = nil
-        tower.cooldown_until = GLOBAL.GetTime() + 300  -- 5 minutes
+        tower.cooldown_until = GLOBAL.GetTime() + 60  -- 1 minute (matches SCOUT_COOLDOWN)
         -- Re-enable via component property (this also adds the tag)
         if tower.components.activatable then
             tower.components.activatable.inactive = true
@@ -931,6 +931,27 @@ local function PickRandomCharacter()
     return pick
 end
 
+-- Resolve biome prefix for a tower by looking up its topology node.
+-- Used when NameTower is called without a biome argument (e.g. deferred
+-- auto-naming) so the name still ends with the biome.
+local function ResolveBiomeForTower(tower)
+    if not tower or not tower.Transform then return nil end
+    local world = GLOBAL.TheWorld
+    local map = world and world.Map
+    local topology = world and world.topology
+    if not map or not topology or not topology.ids then return nil end
+
+    local x, _, z = tower.Transform:GetWorldPosition()
+    local node_id = map:GetNodeIdAtPoint(x, 0, z)
+    local roomId = node_id and topology.ids[node_id]
+    if not roomId then return nil end
+    local prefix = roomId:match("^([^:]+)")
+    if not prefix or prefix == "Blank" or prefix:match("Ocean") then
+        return nil
+    end
+    return prefix
+end
+
 local function GenerateTowerName(biome)
     local character = PickRandomCharacter()
     if biome and biome ~= "" then
@@ -941,8 +962,16 @@ local function GenerateTowerName(biome)
     end
 end
 
--- Apply a generated name to a tower and sync via tag
+-- Apply a generated name to a tower and sync via tag.
+-- If biome wasn't supplied, try to resolve it from world topology so every
+-- tower name ends with a biome when possible (easier to tell them apart).
 local function NameTower(tower, biome)
+    if not biome or biome == "" then
+        biome = ResolveBiomeForTower(tower)
+    end
+    if biome and not tower.biome_name then
+        tower.biome_name = biome
+    end
     local name = GenerateTowerName(biome)
     tower.tower_display_name = name
     -- Store name as tag for client sync (replace spaces/special chars for tag safety)
@@ -974,6 +1003,19 @@ local TELEPORT_SANITY_COST = 15
 
 -- strict GLOBAL: can't read a name that's never been declared, so use rawget
 GLOBAL.MysteryBox_SharedTowers = GLOBAL.rawget(GLOBAL, "MysteryBox_SharedTowers") or {}
+
+-- Registry of all loaded lookouttower entities (client + server). Populated
+-- via AddPrefabPostInit so TowerIndicator doesn't have to scan every entity
+-- every frame. Lifecycle managed by an onremove listener.
+GLOBAL.MysteryBox_LookoutTowers = GLOBAL.rawget(GLOBAL, "MysteryBox_LookoutTowers") or {}
+
+AddPrefabPostInit("lookouttower", function(inst)
+    local registry = GLOBAL.MysteryBox_LookoutTowers
+    registry[inst] = true
+    inst:ListenForEvent("onremove", function()
+        registry[inst] = nil
+    end)
+end)
 
 -- SERVER: attach component to TheWorld
 AddPrefabPostInit("world", function(world)
@@ -1026,12 +1068,17 @@ AddPlayerPostInit(function(player)
         end)
     end
 
-    -- CLIENT side: add tower indicator to HUD
+    -- CLIENT side: add tower indicator to HUD (anchored under the minimap)
     player:DoTaskInTime(1, function()
         if player.HUD and player == GLOBAL.ThePlayer then
             local TowerIndicator = require "widgets/towerindicator"
-            player._tower_indicator = player.HUD.controls:AddChild(TowerIndicator(player))
-            player._tower_indicator:SetPosition(0, 200)  -- Above center of screen
+            local parent = player.HUD.controls and player.HUD.controls.topright_root
+                        or player.HUD.topright_root
+                        or player.HUD.controls
+            player._tower_indicator = parent:AddChild(TowerIndicator(player))
+            -- topright_root is anchored to top-right of screen: (0,0) sits at
+            -- the corner, -X goes left, -Y goes down. Park it below the minimap.
+            player._tower_indicator:SetPosition(-110, -240)
             Log("Tower indicator added to HUD")
         end
     end)
@@ -1273,6 +1320,135 @@ local function RevealBiomeOutline(player, x, z)
 end
 
 GLOBAL.MysteryBox_RevealBiomeOutline = RevealBiomeOutline
+
+-- =============================================================================
+-- BIOME FILL REVEAL
+-- =============================================================================
+-- Reveals the full interior of the biome (all topology nodes sharing the
+-- prefix of the node at the tower's position), not just the outline. The
+-- work is spread across frames so a large biome doesn't stall the sim.
+
+local function RevealBiomeFill(player, x, z)
+    if not player or not player.player_classified then return end
+    local explorer = player.player_classified.MapExplorer
+    if not explorer then return end
+
+    local world = GLOBAL.TheWorld
+    local map = world and world.Map
+    local topology = world and world.topology
+    if not map or not topology or not topology.nodes or not topology.ids then
+        explorer:RevealArea(x, 0, z, 120)
+        return
+    end
+
+    local node_id = map:GetNodeIdAtPoint(x, 0, z)
+    if not node_id then
+        explorer:RevealArea(x, 0, z, 120)
+        return
+    end
+
+    local this_room = topology.ids[node_id]
+    local this_prefix = this_room and this_room:match("^([^:]+)")
+    if not this_prefix then
+        explorer:RevealArea(x, 0, z, 120)
+        return
+    end
+
+    -- Only include nodes sharing the biome prefix AND within MAX_RANGE of
+    -- the tower (avoids revealing every distant same-biome patch on huge
+    -- worlds, which keeps the work bounded).
+    local MAX_RANGE = 600
+    local MAX_RANGE_SQ = MAX_RANGE * MAX_RANGE
+    local target_indices = {}
+    for i, room in ipairs(topology.ids) do
+        local prefix = room and room:match("^([^:]+)")
+        if prefix == this_prefix then
+            local n = topology.nodes[i]
+            local cent = n and (n.cent or (n.x and {n.x, n.y}))
+            if cent then
+                local dx = (cent[1] or n.x or 0) - x
+                local dz = (cent[2] or n.y or 0) - z
+                if dx*dx + dz*dz <= MAX_RANGE_SQ then
+                    target_indices[i] = n
+                end
+            else
+                target_indices[i] = n
+            end
+        end
+    end
+
+    local function GetXZ(p)
+        return p[1] or p.x, p[2] or p.y or p.z
+    end
+
+    -- Build a queue of (node_index, bbox) tuples to process across frames.
+    local queue = {}
+    for idx, node in pairs(target_indices) do
+        local poly = node.poly
+        if poly and #poly >= 3 then
+            local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
+            for _, p in ipairs(poly) do
+                local px, pz = GetXZ(p)
+                if px and pz then
+                    if px < minX then minX = px end
+                    if px > maxX then maxX = px end
+                    if pz < minZ then minZ = pz end
+                    if pz > maxZ then maxZ = pz end
+                end
+            end
+            if minX < maxX and minZ < maxZ then
+                table.insert(queue, {idx = idx, minX = minX, maxX = maxX, minZ = minZ, maxZ = maxZ})
+            end
+        end
+    end
+
+    if #queue == 0 then
+        explorer:RevealArea(x, 0, z, 120)
+        return
+    end
+
+    local STEP = 15
+    local RADIUS = 22
+    local BUDGET_PER_TICK = 150  -- GetNodeIdAtPoint calls per frame
+
+    -- Capture state for the coroutine-style stepper
+    local q_i = 1
+    local cur_x = queue[1].minX
+    local cur_z = queue[1].minZ
+
+    local function Step()
+        if not player:IsValid() or not explorer then return end
+        local work = 0
+        while work < BUDGET_PER_TICK do
+            if q_i > #queue then return end  -- done
+            local entry = queue[q_i]
+
+            if map:GetNodeIdAtPoint(cur_x, 0, cur_z) == entry.idx then
+                explorer:RevealArea(cur_x, 0, cur_z, RADIUS)
+            end
+            work = work + 1
+
+            cur_x = cur_x + STEP
+            if cur_x > entry.maxX then
+                cur_x = entry.minX
+                cur_z = cur_z + STEP
+                if cur_z > entry.maxZ then
+                    q_i = q_i + 1
+                    if q_i <= #queue then
+                        cur_x = queue[q_i].minX
+                        cur_z = queue[q_i].minZ
+                    end
+                end
+            end
+        end
+        -- More work; schedule another tick
+        player:DoTaskInTime(0, Step)
+    end
+
+    Step()
+end
+
+GLOBAL.MysteryBox_RevealBiomeFill = RevealBiomeFill
 
 -- Reveal coastlines (land/water boundaries) near a position
 local function RevealCoastlineNear(player, cx, cz, radius)

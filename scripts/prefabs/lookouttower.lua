@@ -75,11 +75,16 @@ local function EnterScoutMode(inst, doer)
     doer.AnimState:SetMultColour(0.3, 0.3, 0.3, 0.5)
     doer:AddTag("scouting")
 
-    -- Reveal the outline of the biome the tower sits in (falls back to a
-    -- large circle if topology data isn't available).
-    local RevealBiomeOutline = rawget(_G, "MysteryBox_RevealBiomeOutline")
-    if RevealBiomeOutline then
-        RevealBiomeOutline(doer, tx, tz)
+    -- Fill the whole biome (not just outline) so towers near edges still
+    -- reveal their entire home biome. Falls back to outline, then a circle.
+    local RevealBiomeFill = rawget(_G, "MysteryBox_RevealBiomeFill")
+    if RevealBiomeFill then
+        RevealBiomeFill(doer, tx, tz)
+    else
+        local RevealBiomeOutline = rawget(_G, "MysteryBox_RevealBiomeOutline")
+        if RevealBiomeOutline then
+            RevealBiomeOutline(doer, tx, tz)
+        end
     end
 
     -- Also reveal coastlines near the tower
