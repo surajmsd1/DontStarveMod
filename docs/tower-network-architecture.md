@@ -1,171 +1,222 @@
-# Tower Network Implementation - Lessons Learned
+# Tower Network Implementation
 
-## The Challenge
+Players right-click a discovered Lookout Tower to open the Tower Network
+screen and fast-travel between towers. Discoveries are **server-authoritative,
+saved with the world, and shared across all players**.
 
-Implementing a "Tower Network" UI where players can see all discovered lookout towers and teleport between them. Sounds simple, but DST's server/client architecture made this surprisingly difficult.
+## Architecture
 
-## What We Tried (And Why It Failed)
-
-### Attempt 1: Global Lua Table
-```lua
--- modmain.lua
-GLOBAL.MysteryBox_DiscoveredTowers = {}
-
--- When discovering a tower:
-GLOBAL.MysteryBox_DiscoveredTowers[guid] = { x = x, z = z, name = name }
+```
+                        [ server ]
+                            │
+        TheWorld.components.shared_tower_network
+            - towers = { [key] = {x,z,name} }
+            - OnSave / OnLoad  (persists in world save)
+            - AddTower(tower) → (key, entry, isNew)
+                            │
+                            │  RPC broadcast
+                            ▼
+                   (every connected client)
+          GLOBAL.MysteryBox_SharedTowers[key] = {x,z,name}
+                            │
+                            ▼
+                TowerNetworkScreen, TowerIndicator
 ```
 
-**Why it failed:** DST runs server and client in separate Lua environments, even in single-player. The `GLOBAL` table on the server is completely different from `GLOBAL` on the client. The screen (UI) runs on client and sees an empty table.
+**Authority lives on the server.** The client never edits the list directly
+— it only mirrors what the server sends. This is what makes discoveries
+shared and persistent.
 
-### Attempt 2: Store on TheWorld
+## Save / load (how server save actually works in DST)
+
+DST has two persistence mechanisms for mod data:
+
+1. **Entity OnSave/OnLoad** — each saveable entity can define
+   `inst.OnSave = function(inst, data) ... end` and
+   `inst.OnLoad = function(inst, data) ... end`. Good for per-entity
+   state (e.g. the tower's cooldown).
+2. **Component OnSave/OnLoad on `TheWorld`** — attach a custom component
+   to `TheWorld`, and the game will call the component's `OnSave` /
+   `OnLoad` as part of the world save. Good for **shared, global** state.
+   This is how we persist the tower network.
+
+You do NOT call save manually. The game saves on shutdown, on `c_save()`,
+and on periodic autosaves. Your component's `OnSave` returns a Lua table;
+the engine serialises it into the world save file; `OnLoad` gets it back
+the next time the world loads.
+
+The component:
+
 ```lua
--- modmain.lua
-GLOBAL.TheWorld.discovered_towers = {}
+-- scripts/components/shared_tower_network.lua
+local SharedTowerNetwork = Class(function(self, inst)
+    self.inst = inst
+    self.towers = {}
+end)
 
--- Screen reads:
-local towers = TheWorld.discovered_towers
-```
+function SharedTowerNetwork:AddTower(tower)
+    -- returns key, entry, isNew
+end
 
-**Why it failed:** Same problem - `TheWorld` on server is a different object than `TheWorld` on client. Properties set on server don't appear on client.
+function SharedTowerNetwork:GetTowers() return self.towers end
 
-### Attempt 3: Use Entity Tags + Scan Ents
-```lua
--- On discovery:
-tower:AddTag("tower_discovered")
+function SharedTowerNetwork:OnSave()
+    return { towers = self.towers }
+end
 
--- Screen scans:
-for k, ent in pairs(Ents) do
-    if ent:HasTag("tower_discovered") then ...
+function SharedTowerNetwork:OnLoad(data)
+    if data and data.towers then self.towers = data.towers end
 end
 ```
 
-**Why it failed:** Tags DO sync from server to client, but `Ents` on client only contains **nearby entities**. Far-away towers aren't loaded on the client, so they don't appear in `Ents`.
+Attached via `AddPrefabPostInit("world", ...)`, master sim only:
 
-### Attempt 4: TheSim:FindEntities with Huge Radius
 ```lua
-local allTowers = TheSim:FindEntities(0, 0, 0, 50000, {"lookouttower"})
-```
-
-**Why it failed:** Same issue - `TheSim:FindEntities` on client only returns entities that are loaded on the client (nearby ones).
-
-### Attempt 5: Store on Player Object
-```lua
--- RPC handler (runs on server):
-AddModRPCHandler("MysteryBox", "DiscoverTower", function(player, target)
-    player.discovered_towers[key] = { x = x, z = z, name = name }
+AddPrefabPostInit("world", function(world)
+    if not GLOBAL.TheWorld.ismastersim then return end
+    world:AddComponent("shared_tower_network")
 end)
-
--- Screen reads:
-local towers = self.owner.discovered_towers
 ```
 
-**Why it partially failed:** The `player` in the RPC is the server-side player object. Setting properties on it doesn't sync to the client-side player object. Client still saw empty table.
+DST resolves `"shared_tower_network"` to
+`scripts/components/shared_tower_network.lua` automatically (the mod's
+`scripts/` is on the package path).
 
-## The Solution That Works
+## Discovery flow
 
-**Store on BOTH server AND client:**
+```
+[client] right-click tower
+   │
+   │   SendModRPCToServer(DiscoverTower, target)
+   ▼
+[server] RPC handler → DiscoverTowerServer(target, requester)
+   - component:AddTower(target)   (saves via OnSave)
+   - target:AddTag("tower_discovered")
+   - if new:   broadcast SyncTowerAdd to every player
+   - if dup:   only re-send to requester (client cache might be cold)
+   ▼
+[client] AddClientModRPCHandler("SyncTowerAdd")
+   - GLOBAL.MysteryBox_SharedTowers[key] = {x,z,name}
+   ▼
+TowerNetworkScreen / TowerIndicator read GLOBAL.MysteryBox_SharedTowers
+```
+
+`OnActivate` in the tower prefab also calls
+`MysteryBox_DiscoverTowerServer(inst)` (server-side only). That way stepping
+on a tower auto-discovers it through the same pipeline — saved and
+broadcast — even if nobody right-clicked.
+
+## New-player sync
+
+When a player spawns, the server sends the full list to *that player only*:
 
 ```lua
--- Right-click handler (runs on CLIENT):
-GLOBAL.TheInput:AddMouseButtonHandler(function(button, down)
-    local target = GLOBAL.TheInput:GetWorldEntityUnderMouse()
-    if target and target:HasTag("lookouttower") then
-        -- 1. Tell server (for persistence/tags)
-        SendModRPCToServer(MOD_RPC["MysteryBox"]["DiscoverTower"], target)
-
-        -- 2. Also store on CLIENT player directly
-        if not player.discovered_towers then
-            player.discovered_towers = {}
-        end
-        local x, _, z = target.Transform:GetWorldPosition()
-        local key = math.floor(x) .. "_" .. math.floor(z)
-        player.discovered_towers[key] = { x = x, z = z, name = name }
-
-        -- Now screen can read from client player's table
-        GLOBAL.TheFrontEnd:PushScreen(TowerNetworkScreen(player, target))
+AddPlayerPostInit(function(player)
+    if GLOBAL.TheWorld.ismastersim then
+        player:DoTaskInTime(1, function()
+            -- server: send every known tower to this player's client
+            for key, entry in pairs(comp:GetTowers()) do
+                SendModRPCToClient(
+                    CLIENT_MOD_RPC["MysteryBox"]["SyncTowerAdd"],
+                    player.userid, key, entry.x, entry.z, entry.name
+                )
+            end
+        end)
     end
 end)
 ```
 
-**Key insight:** The right-click handler runs on CLIENT, so `player` in that context IS the client-side player. We can store data directly on it.
+A 1-second delay gives the client time to finish setup and register its
+RPC handlers before the server starts firing snapshots.
 
-## DST Server/Client Architecture Summary
+## RPCs
 
-| Thing | Syncs Server → Client? | Notes |
-|-------|------------------------|-------|
-| Entity Tags | YES | `inst:AddTag("foo")` syncs automatically |
-| Entity Properties | NO | `inst.foo = "bar"` is server-only |
-| GLOBAL tables | NO | Separate Lua environments |
-| TheWorld | NO | Different objects on server/client |
-| ThePlayer | NO | Different objects, same entity |
-| Ents | PARTIAL | Client only has nearby entities |
-| NetVars | YES | Complex to set up, but properly syncs |
-| RPCs | ONE-WAY | Client → Server or Server → Client |
+| RPC                | Direction        | Payload                          |
+|--------------------|------------------|----------------------------------|
+| `DiscoverTower`    | client → server  | `target` (tower entity)          |
+| `SyncTowerAdd`     | server → client  | `key, x, z, name`                |
+| `TowerTeleportPos` | client → server  | `x, z`                           |
 
-## Other Gotchas We Hit
+Server→client RPCs are registered with `AddClientModRPCHandler` and
+invoked with `SendModRPCToClient(CLIENT_MOD_RPC[mod][name], userid, ...)`.
 
-### 1. Custom Screen Require Paths
+## DST server/client reference
+
+| Thing            | Syncs server → client?      |
+|------------------|-----------------------------|
+| Entity **tags**  | YES (automatic)             |
+| Entity props     | NO                          |
+| `GLOBAL` tables  | NO (separate Lua envs)      |
+| `TheWorld`       | NO (different object)       |
+| `ThePlayer`      | NO (different object)       |
+| `Ents`           | PARTIAL (nearby only)       |
+| NetVars          | YES                         |
+| RPCs             | ONE-WAY (explicit)          |
+
+Everything in `GLOBAL.MysteryBox_SharedTowers` on the client got there by
+an explicit RPC. That's why it works.
+
+## Gotchas (still true)
+
+### Require paths in runtime handlers
+`require("screens/myscreen")` inside a callback fails. Load screens at
+the top of `modmain.lua`:
 ```lua
--- WRONG (fails at runtime):
-GLOBAL.TheInput:AddMouseButtonHandler(function()
-    local MyScreen = require("screens/myscreen")  -- Module not found!
-end)
-
--- RIGHT (load at startup):
-local MyScreen = require("screens/towernetworkscreen")  -- Top of modmain.lua
-GLOBAL.TheInput:AddMouseButtonHandler(function()
-    GLOBAL.TheFrontEnd:PushScreen(MyScreen(player))  -- Works
-end)
+local TowerNetworkScreen = require("screens/towernetworkscreen")
 ```
 
-### 2. GLOBAL Strict Mode
+### Strict GLOBAL
+`GLOBAL.MysteryBox_Foo` errors if never declared. Initialise first:
 ```lua
--- WRONG (crashes in DST's strict mode):
-if GLOBAL.MysteryBox_Foo then ...  -- Error: variable not declared
-
--- RIGHT:
-if rawget(GLOBAL, "MysteryBox_Foo") then ...
--- Or just create it first:
-GLOBAL.MysteryBox_Foo = GLOBAL.MysteryBox_Foo or {}
+GLOBAL.MysteryBox_SharedTowers = GLOBAL.MysteryBox_SharedTowers or {}
 ```
 
-### 3. HUD Widget Z-Order
-```lua
--- Scout overlay was covering minimap
--- WRONG: Just add overlay
-player.HUD.root:AddChild(ScoutOverlay(player))
+### HUD z-order
+Adding an overlay puts it on top of the minimap. Fix with
+`MoveToBack()` then re-`AddChild` every other HUD child.
 
--- RIGHT: Move overlay to back, re-add everything else on top
-player._scout_overlay = player.HUD.root:AddChild(ScoutOverlay(player))
-player._scout_overlay:MoveToBack()
-for _, child in pairs(player.HUD.root.children) do
-    if child ~= player._scout_overlay then
-        player.HUD.root:AddChild(child)  -- Re-add moves to top
-    end
-end
+### Missing textures fail silent-ish
+`Image("images/hud.xml", "arrow.tex")` warns in `client_log.txt` and
+renders nothing. Use an existing atlas (e.g.
+`images/global_redux.xml` / `scrollbar_handle.tex`).
+
+## Files
+
+- `scripts/components/shared_tower_network.lua` — server component +
+  save/load
+- `modmain.lua` — RPCs, world hookup, player-spawn sync, right-click
+  handler, server-side discover helper
+- `scripts/screens/towernetworkscreen.lua` — reads
+  `GLOBAL.MysteryBox_SharedTowers`
+- `scripts/prefabs/lookouttower.lua` — `OnActivate` calls
+  `MysteryBox_DiscoverTowerServer`
+- `scripts/widgets/towerindicator.lua` — checks shared table +
+  `tower_discovered` tag
+
+## Debugging
+
+The `client_log.txt`:
+`~/Library/Application Support/Klei/DoNotStarveTogether/client_log.txt`
+
+Useful console checks:
+
+```lua
+-- server: inspect the live list
+for k,v in pairs(TheWorld.components.shared_tower_network.towers) do print(k,v.name) end
+
+-- client: inspect the mirror
+for k,v in pairs(MysteryBox_SharedTowers) do print(k,v.name) end
+
+-- force a save (server only)
+c_save()
 ```
 
-### 4. Arrow Texture Doesn't Exist
-```lua
--- WRONG (texture doesn't exist):
-Image("images/hud.xml", "arrow.tex")  -- WARNING! Could not find region
-
--- RIGHT (use existing texture):
-Image("images/global_redux.xml", "scrollbar_handle.tex")
-```
-
-## Multiplayer Limitations
-
-Current implementation stores discoveries per-player in a non-syncing table. In multiplayer:
-- Each player tracks their own discoveries
-- Players don't share discoveries with each other
-- Teleportation works fine once you've personally visited a tower
-
-To fix: Would need NetVars or a server-authoritative shared table with proper client sync.
-
-## Files Changed
-
-- `modmain.lua` - Discovery storage, RPCs, right-click handler
-- `scripts/screens/towernetworkscreen.lua` - Reads from player.discovered_towers
-- `scripts/prefabs/lookouttower.lua` - Scout mode, biome/coastline reveal
-- `scripts/widgets/towerindicator.lua` - HUD indicator for nearby towers
+If discovery isn't propagating:
+1. Screen empty on client → the client RPC handler didn't run. Confirm
+   `MysteryBox_SharedTowers` exists and is populated on the client.
+2. Empty after relog → component not attached, or `OnSave`/`OnLoad`
+   payload malformed. Check the component is present on `TheWorld` and
+   that `c_save()` runs without errors.
+3. One player sees towers, another doesn't → `SendFullListTo` didn't
+   fire for the second player (check `userid` is non-nil at spawn time;
+   raise the `DoTaskInTime` delay if needed).

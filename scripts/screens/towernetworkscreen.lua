@@ -139,8 +139,8 @@ function TowerNetworkScreen:BuildTowerList()
         currentKey = math.floor(tx) .. "_" .. math.floor(tz)
     end
 
-    -- Read from player's discovered_towers (shared between server/client in single-player)
-    local discoveredTowers = self.owner.discovered_towers or {}
+    -- Read from the shared client-side mirror kept in sync by server RPCs.
+    local discoveredTowers = MysteryBox_SharedTowers or {}
 
     local towerList = {}
     local count = 0
@@ -238,7 +238,7 @@ function TowerNetworkScreen:OnControl(control, down)
     if TowerNetworkScreen._base.OnControl(self, control, down) then
         return true
     end
-    if not down and (control == CONTROL_CANCEL or control == CONTROL_SECONDARY) then
+    if not down and control == CONTROL_CANCEL then
         self:Close()
         return true
     end

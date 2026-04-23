@@ -40,17 +40,23 @@ function TowerIndicator:OnUpdate(dt)
 
     local px, _, pz = self.owner.Transform:GetWorldPosition()
 
-    -- Find nearest undiscovered tower
+    -- Find nearest undiscovered tower. "Discovered" is whatever's in the
+    -- shared client mirror synced from the server; the tag is a local hint.
+    local shared = MysteryBox_SharedTowers or {}
     local nearestTower = nil
     local nearestDist = math.huge
 
     for k, ent in pairs(Ents) do
-        if ent:IsValid() and ent:HasTag("lookouttower") and not ent:HasTag("tower_discovered") then
+        if ent:IsValid() and ent:HasTag("lookouttower") then
             local tx, _, tz = ent.Transform:GetWorldPosition()
-            local dist = math.sqrt((tx - px)^2 + (tz - pz)^2)
-            if dist < nearestDist and dist < INDICATOR_RANGE and dist > INDICATOR_MIN_RANGE then
-                nearestTower = ent
-                nearestDist = dist
+            local key = math.floor(tx) .. "_" .. math.floor(tz)
+            local discovered = shared[key] ~= nil or ent:HasTag("tower_discovered")
+            if not discovered then
+                local dist = math.sqrt((tx - px)^2 + (tz - pz)^2)
+                if dist < nearestDist and dist < INDICATOR_RANGE and dist > INDICATOR_MIN_RANGE then
+                    nearestTower = ent
+                    nearestDist = dist
+                end
             end
         end
     end

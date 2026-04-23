@@ -148,10 +148,13 @@ local function OnActivate(inst, doer)
     -- Re-enable via the component property (this also adds the tag)
     inst.components.activatable.inactive = true
 
-    -- Auto-discover this tower when activated
-    if not inst:HasTag("tower_discovered") then
+    -- Auto-discover this tower when activated (goes through shared network
+    -- so it's saved and broadcast to all clients)
+    local Discover = rawget(_G, "MysteryBox_DiscoverTowerServer")
+    if Discover then
+        Discover(inst)
+    elseif not inst:HasTag("tower_discovered") then
         inst:AddTag("tower_discovered")
-        print("[Lookout Tower] Auto-discovered via activation")
     end
 
     -- Check cooldown

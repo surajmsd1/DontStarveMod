@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-4.19.0"
+local MOD_VERSION = "DEV-4.20.6"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
@@ -959,66 +959,74 @@ GLOBAL.MysteryBox_NameTower = NameTower
 -- =============================================================================
 -- Right click a tower → Tower Network screen (replaces examine)
 -- Shows discovered towers with distance/direction, click to teleport
--- Tower discovery: walk within 20 units of a tower to discover it
--- Teleport cost: 50 sanity
+-- Discovery is interaction-driven (right-click or OnActivate)
+-- Teleport cost: 15 sanity
 -- =============================================================================
 
 local TELEPORT_SANITY_COST = 15
-local TOWER_DISCOVER_RADIUS = 20
 
--- Store discovered towers on player so it's accessible from client screens
--- Format: player.discovered_towers = { [key] = {x=, z=, name=} }
+-- =============================================================================
+-- SHARED TOWER NETWORK (server-authoritative, saved in world, synced to clients)
+-- =============================================================================
+-- Server owns the list via a component on TheWorld (shared_tower_network).
+-- Save/load is automatic through the component's OnSave/OnLoad.
+-- Clients mirror it in GLOBAL.MysteryBox_SharedTowers, kept in sync by RPCs.
 
-local function AddDiscoveredTower(tower, player)
-    if not tower or not tower:IsValid() then return end
-    player = player or GLOBAL.ThePlayer
-    if not player then return end
+-- strict GLOBAL: can't read a name that's never been declared, so use rawget
+GLOBAL.MysteryBox_SharedTowers = GLOBAL.rawget(GLOBAL, "MysteryBox_SharedTowers") or {}
 
-    -- Initialize table on player if needed
-    if not player.discovered_towers then
-        player.discovered_towers = {}
-    end
+-- SERVER: attach component to TheWorld
+AddPrefabPostInit("world", function(world)
+    if not GLOBAL.TheWorld.ismastersim then return end
+    if world.components.shared_tower_network then return end
+    world:AddComponent("shared_tower_network")
+    Log("Shared tower network component attached to world")
+end)
 
-    local x, _, z = tower.Transform:GetWorldPosition()
-    local key = math.floor(x) .. "_" .. math.floor(z)
-
-    if player.discovered_towers[key] then return end -- Already known
-
-    local name = tower.tower_display_name or "Lookout Tower"
-
-    player.discovered_towers[key] = {
-        x = x,
-        z = z,
-        name = name,
-    }
-    Log("Tower added to network: " .. name .. " at " .. math.floor(x) .. "," .. math.floor(z))
-end
-
--- Rebuild discovered towers from existing tags (after c_reset or world load)
-local function RebuildDiscoveredTowers()
-    local player = GLOBAL.ThePlayer
-    if not player then return end
-    if not player.discovered_towers then
-        player.discovered_towers = {}
-    end
-    local count = 0
-    for k, ent in pairs(GLOBAL.Ents) do
-        if ent:IsValid() and ent:HasTag("lookouttower") and ent:HasTag("tower_discovered") then
-            AddDiscoveredTower(ent, player)
-            count = count + 1
+-- SERVER: broadcast a single new tower entry to every connected player
+local function BroadcastTowerAdd(key, entry)
+    for _, p in ipairs(GLOBAL.AllPlayers) do
+        if p.userid then
+            SendModRPCToClient(
+                CLIENT_MOD_RPC["MysteryBox"]["SyncTowerAdd"],
+                p.userid, key, entry.x, entry.z, entry.name
+            )
         end
     end
-    if count > 0 then
-        Log("Rebuilt " .. count .. " discovered towers from tags")
+end
+
+-- SERVER: send the full list to a specific player (used on spawn)
+local function SendFullListTo(player)
+    if not player or not player.userid then return end
+    local world = GLOBAL.TheWorld
+    local comp = world and world.components.shared_tower_network
+    if not comp then return end
+    for key, entry in pairs(comp:GetTowers()) do
+        SendModRPCToClient(
+            CLIENT_MOD_RPC["MysteryBox"]["SyncTowerAdd"],
+            player.userid, key, entry.x, entry.z, entry.name
+        )
     end
 end
+
+-- CLIENT: receive a tower entry from server
+AddClientModRPCHandler("MysteryBox", "SyncTowerAdd", function(key, x, z, name)
+    if not key then return end
+    GLOBAL.MysteryBox_SharedTowers[key] = { x = x, z = z, name = name }
+end)
 
 -- Call rebuild when player spawns
 AddPlayerPostInit(function(player)
-    player.discovered_towers = {}
-    player:DoTaskInTime(2, RebuildDiscoveredTowers)
+    -- SERVER side: push the full discovered list to this player's client
+    if GLOBAL.TheWorld and GLOBAL.TheWorld.ismastersim then
+        player:DoTaskInTime(1, function()
+            if player:IsValid() then
+                SendFullListTo(player)
+            end
+        end)
+    end
 
-    -- Add tower indicator to HUD (client only)
+    -- CLIENT side: add tower indicator to HUD
     player:DoTaskInTime(1, function()
         if player.HUD and player == GLOBAL.ThePlayer then
             local TowerIndicator = require "widgets/towerindicator"
@@ -1029,22 +1037,40 @@ AddPlayerPostInit(function(player)
     end)
 end)
 
--- RPC: Discover a tower (adds tag on server + stores on player)
-AddModRPCHandler("MysteryBox", "DiscoverTower", function(player, target)
-    Log("DiscoverTower RPC called, target=" .. tostring(target))
-    if not target or not target:HasTag("lookouttower") then
-        Log("DiscoverTower RPC: invalid target or not a tower")
+-- SERVER: core discovery logic (called from RPC and from OnActivate)
+local function DiscoverTowerServer(target, requesting_player)
+    if not target or not target:HasTag("lookouttower") then return end
+    local world = GLOBAL.TheWorld
+    local comp = world and world.components.shared_tower_network
+    if not comp then
+        Log("DiscoverTowerServer: shared_tower_network component missing")
         return
     end
+
     if not target:HasTag("tower_discovered") then
         target:AddTag("tower_discovered")
-        AddDiscoveredTower(target, player)
-        Log("Tower discovered via RPC: " .. (target.tower_display_name or "Unknown"))
-    else
-        -- Already discovered but maybe not in table yet
-        AddDiscoveredTower(target, player)
-        Log("Tower already discovered, ensuring in table")
     end
+
+    local key, entry, isNew = comp:AddTower(target)
+    if not key then return end
+
+    if isNew then
+        Log("Tower discovered: " .. entry.name .. " at " .. key)
+        BroadcastTowerAdd(key, entry)
+    elseif requesting_player and requesting_player.userid then
+        -- Already known on server but requester might not have it cached yet
+        SendModRPCToClient(
+            CLIENT_MOD_RPC["MysteryBox"]["SyncTowerAdd"],
+            requesting_player.userid, key, entry.x, entry.z, entry.name
+        )
+    end
+end
+
+GLOBAL.MysteryBox_DiscoverTowerServer = DiscoverTowerServer
+
+-- RPC: Discover a tower (client → server)
+AddModRPCHandler("MysteryBox", "DiscoverTower", function(player, target)
+    DiscoverTowerServer(target, player)
 end)
 
 -- RPC: Teleport to position (for tower network UI)
@@ -1138,21 +1164,8 @@ GLOBAL.TheInput:AddMouseButtonHandler(function(button, down)
 
     local target = GLOBAL.TheInput:GetWorldEntityUnderMouse()
     if target and target:HasTag("lookouttower") then
-        -- Auto-discover this tower via server RPC
+        -- Tell the server. Server adds to shared list, saves, and broadcasts back.
         SendModRPCToServer(MOD_RPC["MysteryBox"]["DiscoverTower"], target)
-
-        -- Also add to CLIENT player's table directly (server RPC won't update client)
-        if not player.discovered_towers then
-            player.discovered_towers = {}
-        end
-        local x, _, z = target.Transform:GetWorldPosition()
-        local key = math.floor(x) .. "_" .. math.floor(z)
-        if not player.discovered_towers[key] then
-            local name = target.tower_display_name or "Lookout Tower"
-            player.discovered_towers[key] = { x = x, z = z, name = name }
-            Log("Tower added to client: " .. name)
-        end
-
         GLOBAL.TheFrontEnd:PushScreen(TowerNetworkScreen(player, target))
     end
 end)
@@ -1271,32 +1284,42 @@ local function RevealCoastlineNear(player, cx, cz, radius)
     local map = world and world.Map
     if not map then return end
 
-    local STEP = 8  -- Check every 8 units
-    local REVEAL_RADIUS = 15
+    local STEP = 4  -- finer grid for cleaner shorelines
+    local REVEAL_RADIUS = 14
     local count = 0
+
+    local neighbors = {
+        {STEP, 0}, {-STEP, 0}, {0, STEP}, {0, -STEP},
+        {STEP, STEP}, {STEP, -STEP}, {-STEP, STEP}, {-STEP, -STEP},
+    }
+
+    local function IsOcean(tile)
+        return tile == GLOBAL.WORLD_TILES.OCEAN_COASTAL
+            or tile == GLOBAL.WORLD_TILES.OCEAN_SWELL
+            or tile == GLOBAL.WORLD_TILES.OCEAN_ROUGH
+            or tile == GLOBAL.WORLD_TILES.OCEAN_BRINEPOOL
+            or tile == GLOBAL.WORLD_TILES.OCEAN_HAZARDOUS
+            or tile == GLOBAL.WORLD_TILES.OCEAN_WATERLOG
+            or (tile and tostring(tile):find("OCEAN"))
+    end
+
+    local function IsLand(tile)
+        return tile and tile ~= GLOBAL.WORLD_TILES.IMPASSABLE and not IsOcean(tile)
+    end
 
     for x = cx - radius, cx + radius, STEP do
         for z = cz - radius, cz + radius, STEP do
             local dist = math.sqrt((x - cx)^2 + (z - cz)^2)
             if dist <= radius then
                 local tile = map:GetTileAtPoint(x, 0, z)
-                local is_ocean = tile == GLOBAL.WORLD_TILES.OCEAN_COASTAL
-                    or tile == GLOBAL.WORLD_TILES.OCEAN_SWELL
-                    or tile == GLOBAL.WORLD_TILES.OCEAN_ROUGH
-                    or tile == GLOBAL.WORLD_TILES.OCEAN_BRINEPOOL
-                    or tile == GLOBAL.WORLD_TILES.OCEAN_HAZARDOUS
-                    or tile == GLOBAL.WORLD_TILES.OCEAN_WATERLOG
-                    or (tile and tostring(tile):find("OCEAN"))
-
-                if is_ocean then
-                    -- Check adjacent tiles for land
-                    for _, offset in ipairs({{STEP,0}, {-STEP,0}, {0,STEP}, {0,-STEP}}) do
+                if IsOcean(tile) then
+                    -- 8-way neighbor check; reveal both ocean and land side
+                    -- so the shoreline has thickness and aligns with the edge.
+                    for _, offset in ipairs(neighbors) do
                         local nx, nz = x + offset[1], z + offset[2]
-                        local ntile = map:GetTileAtPoint(nx, 0, nz)
-                        local is_land = ntile and ntile ~= GLOBAL.WORLD_TILES.IMPASSABLE
-                            and not (tostring(ntile):find("OCEAN"))
-                        if is_land then
+                        if IsLand(map:GetTileAtPoint(nx, 0, nz)) then
                             explorer:RevealArea(x, 0, z, REVEAL_RADIUS)
+                            explorer:RevealArea(nx, 0, nz, REVEAL_RADIUS)
                             count = count + 1
                             break
                         end
@@ -1504,44 +1527,8 @@ AddPrefabPostInit("world", function(world)
     end)
 end)
 
--- =============================================================================
--- TOWER DISCOVERY SYSTEM
--- =============================================================================
--- Players discover towers by walking within 20 units.
--- Discovered towers get "tower_discovered" tag (syncs to client).
--- Only discovered towers appear in the Tower Network menu.
--- =============================================================================
-
-AddPrefabPostInit("world", function(world)
-    if not GLOBAL.TheWorld.ismastersim then return end
-
-    world:DoPeriodicTask(2, function()
-        local towers = GLOBAL.TheSim:FindEntities(0, 0, 0, 10000, {"lookouttower"})
-        if not towers then return end
-
-        for _, tower in ipairs(towers) do
-            if tower:IsValid() and not tower:HasTag("tower_discovered") then
-                local tx, _, tz = tower.Transform:GetWorldPosition()
-                for _, player in ipairs(GLOBAL.AllPlayers) do
-                    if player:IsValid() then
-                        local px, _, pz = player.Transform:GetWorldPosition()
-                        local dist = math.sqrt((tx - px)^2 + (tz - pz)^2)
-                        if dist < TOWER_DISCOVER_RADIUS then
-                            tower:AddTag("tower_discovered")
-                            AddDiscoveredTower(tower, player)
-                            local name = tower.tower_display_name or tower.biome_name or "Unknown"
-                            if player.components.talker then
-                                player.components.talker:Say("Discovered " .. name .. "!")
-                            end
-                            Log("Tower discovered: " .. name)
-                            break
-                        end
-                    end
-                end
-            end
-        end
-    end)
-end)
+-- Discovery is interaction-driven: right-click or activating a tower routes
+-- through MysteryBox_DiscoverTowerServer, which saves and broadcasts.
 
 -- Log successful initialization
 Log("Mod initialized successfully!")
