@@ -22,16 +22,24 @@ local function AngleToCardinal(angle)
     end
 end
 
-local function GetTowerDisplayName(tower)
-    -- Read the generated name from tags (format: "towername_Wilson_s_Marsh")
-    -- Iterate through common tag prefixes to find towername
-    local testTags = {
-        "towername_North", "towername_South", "towername_East", "towername_West",
-        "towername_Central", "towername_Far", "towername_Deep", "towername_Hidden"
-    }
+local function TowerKey(tower)
+    if not (tower and tower.Transform) then return nil end
+    local tx, _, tz = tower.Transform:GetWorldPosition()
+    return math.floor(tx) .. "_" .. math.floor(tz)
+end
 
-    -- Try to find any towername tag by checking HasTag with common prefixes
-    -- This is a workaround since we can't iterate all tags on client
+local function GetTowerDisplayName(tower)
+    -- Preferred: use the authoritative name from the server-synced shared
+    -- table. Every tower is registered there on activation, so this is
+    -- reliable for both the current tower and discovered peers.
+    local key = TowerKey(tower)
+    local shared = MysteryBox_SharedTowers
+    if key and shared and shared[key] and shared[key].name then
+        return shared[key].name
+    end
+
+    -- Fallback: parse the generated name from the debug string tag list
+    -- (format: "towername_Wilson_s_Marsh").
     if tower.GetDebugString then
         local debugStr = tower:GetDebugString()
         if debugStr then
@@ -39,13 +47,12 @@ local function GetTowerDisplayName(tower)
             if tagName then
                 local name = tagName:gsub("_", " ")
                 name = name:gsub("(%w) s ", "%1's ")
-                print("[TowerNetwork] Found name via debug: " .. name)
                 return name
             end
         end
     end
 
-    -- Fallback: use position-based name
+    -- Last resort: position-based name
     if tower.Transform then
         local x, _, z = tower.Transform:GetWorldPosition()
         local dir = ""
@@ -87,10 +94,17 @@ local TowerNetworkScreen = Class(Screen, function(self, owner, tower)
     self.bg:SetTint(0.12, 0.1, 0.08, 0.95)
     self.bg:SetSize(panelW, panelH)
 
-    -- Title
+    -- "You are here" label above the title, so the current tower's identity
+    -- is obvious (useful for knowing which tower to come back to).
+    self.here_label = self.root:AddChild(Text(BODYTEXTFONT, 14))
+    self.here_label:SetPosition(0, panelH/2 - 14)
+    self.here_label:SetString("You are at")
+    self.here_label:SetColour(0.55, 0.5, 0.4, 0.8)
+
+    -- Title: the current tower's name
     local towerName = GetTowerDisplayName(tower)
     self.title = self.root:AddChild(Text(TITLEFONT, 26))
-    self.title:SetPosition(0, panelH/2 - 30)
+    self.title:SetPosition(0, panelH/2 - 36)
     self.title:SetString(string.upper(towerName))
     self.title:SetColour(0.9, 0.8, 0.6, 1)
 
@@ -98,23 +112,52 @@ local TowerNetworkScreen = Class(Screen, function(self, owner, tower)
     self.divider = self.root:AddChild(Image("images/global.xml", "square.tex"))
     self.divider:SetTint(0.3, 0.25, 0.18, 0.6)
     self.divider:SetSize(panelW - 40, 1)
-    self.divider:SetPosition(0, panelH/2 - 50)
+    self.divider:SetPosition(0, panelH/2 - 56)
 
     -- Subtitle
     self.subtitle = self.root:AddChild(Text(BODYTEXTFONT, 16))
-    self.subtitle:SetPosition(0, panelH/2 - 65)
+    self.subtitle:SetPosition(0, panelH/2 - 71)
     self.subtitle:SetString("Tower Network")
     self.subtitle:SetColour(0.6, 0.55, 0.45, 0.8)
 
     -- Sanity cost note
     self.cost = self.root:AddChild(Text(BODYTEXTFONT, 14))
-    self.cost:SetPosition(0, panelH/2 - 82)
+    self.cost:SetPosition(0, panelH/2 - 88)
     self.cost:SetString("Travel cost: " .. TELEPORT_SANITY_COST .. " Sanity")
     self.cost:SetColour(0.55, 0.4, 0.6, 0.7)
 
-    -- Tower list area
+    -- Scroll state + config (used by BuildTowerList and scroll controls)
+    self.row_height = 42
+    self.max_rows = 6
+    self.scroll_offset = 0
+
+    -- Tower list area: row holder (cleared on each render) + persistent
+    -- scroll controls (arrows + page indicator).
     self.list = self.root:AddChild(Widget("list"))
-    self.list:SetPosition(0, 0)
+    self.list:SetPosition(0, -10)
+
+    self.row_holder = self.list:AddChild(Widget("row_holder"))
+
+    local listVisibleH = self.max_rows * self.row_height
+
+    self.scroll_up = self.list:AddChild(ImageButton())
+    self.scroll_up:SetPosition(165, listVisibleH/2 - 8)
+    self.scroll_up:SetScale(0.45)
+    self.scroll_up:SetText("^")
+    self.scroll_up:SetFont(BUTTONFONT)
+    self.scroll_up:SetOnClick(function() self:ScrollBy(-1) end)
+
+    self.scroll_down = self.list:AddChild(ImageButton())
+    self.scroll_down:SetPosition(165, -listVisibleH/2 + 8)
+    self.scroll_down:SetScale(0.45)
+    self.scroll_down:SetText("v")
+    self.scroll_down:SetFont(BUTTONFONT)
+    self.scroll_down:SetOnClick(function() self:ScrollBy(1) end)
+
+    self.scroll_indicator = self.list:AddChild(Text(BODYTEXTFONT, 13))
+    self.scroll_indicator:SetPosition(165, 0)
+    self.scroll_indicator:SetColour(0.55, 0.5, 0.4, 0.8)
+
     self:BuildTowerList()
 
     -- Bottom buttons
@@ -133,26 +176,18 @@ end)
 
 function TowerNetworkScreen:BuildTowerList()
     local px, _, pz = self.owner.Transform:GetWorldPosition()
-    local currentKey = nil
-    if self.tower and self.tower.Transform then
-        local tx, _, tz = self.tower.Transform:GetWorldPosition()
-        currentKey = math.floor(tx) .. "_" .. math.floor(tz)
-    end
+    local currentKey = TowerKey(self.tower)
 
     -- Read from the shared client-side mirror kept in sync by server RPCs.
     local discoveredTowers = MysteryBox_SharedTowers or {}
 
     local towerList = {}
-    local count = 0
-
     for key, data in pairs(discoveredTowers) do
-        count = count + 1
         if key ~= currentKey then
             local dx = data.x - px
             local dz = data.z - pz
             local dist = math.sqrt(dx * dx + dz * dz)
             local angle = math.atan2(dz, dx)
-
             table.insert(towerList, {
                 key = key,
                 name = data.name,
@@ -163,55 +198,76 @@ function TowerNetworkScreen:BuildTowerList()
             })
         end
     end
-
-    print("[TowerNetwork] Discovered towers: " .. count)
     table.sort(towerList, function(a, b) return a.dist < b.dist end)
 
-    if #towerList == 0 then
-        local msg = self.list:AddChild(Text(BODYTEXTFONT, 18))
+    self.tower_list = towerList
+    self.scroll_offset = 0
+    self:RenderVisibleRows()
+end
+
+function TowerNetworkScreen:RenderVisibleRows()
+    self.row_holder:KillAllChildren()
+
+    local towerList = self.tower_list or {}
+    local total = #towerList
+    local rowH = self.row_height
+    local maxRows = self.max_rows
+
+    -- Empty-state message: hide scroll controls and show hint.
+    if total == 0 then
+        self.scroll_up:Hide()
+        self.scroll_down:Hide()
+        self.scroll_indicator:SetString("")
+
+        local msg = self.row_holder:AddChild(Text(BODYTEXTFONT, 18))
         msg:SetPosition(0, 20)
         msg:SetString("No other towers discovered yet.")
         msg:SetColour(0.5, 0.45, 0.4, 0.7)
 
-        local hint = self.list:AddChild(Text(BODYTEXTFONT, 14))
+        local hint = self.row_holder:AddChild(Text(BODYTEXTFONT, 14))
         hint:SetPosition(0, -5)
         hint:SetString("Explore the world to find more!")
         hint:SetColour(0.4, 0.38, 0.35, 0.5)
         return
     end
 
-    local rowH = 42
-    local startY = (#towerList - 1) * rowH / 2
-    local maxRows = 7
+    -- Clamp scroll offset to valid range.
+    local maxOffset = math.max(0, total - maxRows)
+    if self.scroll_offset < 0 then self.scroll_offset = 0 end
+    if self.scroll_offset > maxOffset then self.scroll_offset = maxOffset end
 
-    for i, data in ipairs(towerList) do
-        if i > maxRows then break end
+    local visibleCount = math.min(maxRows, total - self.scroll_offset)
+    local startY = (visibleCount - 1) * rowH / 2
 
-        local y = startY - (i - 1) * rowH
-        local row = self.list:AddChild(Widget("row" .. i))
+    for slot = 1, visibleCount do
+        local i = self.scroll_offset + slot
+        local data = towerList[i]
+        local y = startY - (slot - 1) * rowH
+
+        local row = self.row_holder:AddChild(Widget("row" .. slot))
         row:SetPosition(0, y)
 
-        -- Row background (subtle alternating)
+        -- Row background (subtle alternating based on actual index)
         local rowBg = row:AddChild(Image("images/global.xml", "square.tex"))
         local bgAlpha = (i % 2 == 0) and 0.06 or 0.03
         rowBg:SetTint(1, 1, 1, bgAlpha)
-        rowBg:SetSize(320, rowH - 4)
+        rowBg:SetSize(300, rowH - 4)
 
         -- Tower name (left aligned)
         local nameText = row:AddChild(Text(BUTTONFONT, 17))
-        nameText:SetPosition(-80, 4)
+        nameText:SetPosition(-90, 4)
         nameText:SetString(data.name)
         nameText:SetColour(0.9, 0.85, 0.7, 1)
 
-        -- Distance + direction (right side)
+        -- Distance + direction (middle)
         local infoText = row:AddChild(Text(BODYTEXTFONT, 15))
-        infoText:SetPosition(-80, -12)
+        infoText:SetPosition(-90, -12)
         infoText:SetString(string.format("%dm  %s", math.floor(data.dist), data.dir))
         infoText:SetColour(0.6, 0.55, 0.45, 0.7)
 
         -- Travel button
         local btn = row:AddChild(ImageButton())
-        btn:SetPosition(130, 0)
+        btn:SetPosition(115, 0)
         btn:SetScale(0.5)
         btn:SetText("Travel")
         btn:SetFont(BUTTONFONT)
@@ -222,12 +278,24 @@ function TowerNetworkScreen:BuildTowerList()
         end)
     end
 
-    if #towerList > maxRows then
-        local more = self.list:AddChild(Text(BODYTEXTFONT, 13))
-        more:SetPosition(0, startY - maxRows * rowH)
-        more:SetString("+" .. (#towerList - maxRows) .. " more...")
-        more:SetColour(0.4, 0.38, 0.35, 0.5)
+    -- Scroll controls: show only when there's something to scroll.
+    if total > maxRows then
+        self.scroll_up:Show()
+        self.scroll_down:Show()
+        local first = self.scroll_offset + 1
+        local last = self.scroll_offset + visibleCount
+        self.scroll_indicator:SetString(string.format("%d-%d\nof %d", first, last, total))
+    else
+        self.scroll_up:Hide()
+        self.scroll_down:Hide()
+        self.scroll_indicator:SetString("")
     end
+end
+
+function TowerNetworkScreen:ScrollBy(delta)
+    if not self.tower_list or #self.tower_list == 0 then return end
+    self.scroll_offset = self.scroll_offset + delta
+    self:RenderVisibleRows()
 end
 
 function TowerNetworkScreen:Close()
@@ -240,6 +308,15 @@ function TowerNetworkScreen:OnControl(control, down)
     end
     if not down and control == CONTROL_CANCEL then
         self:Close()
+        return true
+    end
+    -- Mouse wheel / gamepad equivalents scroll the tower list.
+    if down and control == CONTROL_SCROLLBACK then
+        self:ScrollBy(-1)
+        return true
+    end
+    if down and control == CONTROL_SCROLLFWD then
+        self:ScrollBy(1)
         return true
     end
     return false
