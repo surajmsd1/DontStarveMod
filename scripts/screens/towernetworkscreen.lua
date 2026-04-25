@@ -140,21 +140,28 @@ local TowerNetworkScreen = Class(Screen, function(self, owner, tower)
 
     local listVisibleH = self.max_rows * self.row_height
 
+    -- Compact arrow buttons. Both use the same font, size, and forced image
+    -- size so the up/down glyphs render symmetrically. ASCII '^' and 'v' are
+    -- used (not unicode triangles) because BUTTONFONT renders them
+    -- consistently — unicode arrows fell back to a different font and the
+    -- two glyphs ended up different sizes.
     self.scroll_up = self.list:AddChild(ImageButton())
-    self.scroll_up:SetPosition(165, listVisibleH/2 - 8)
-    self.scroll_up:SetScale(0.45)
-    self.scroll_up:SetText("^")
+    self.scroll_up:SetPosition(165, listVisibleH/2 - 4)
+    self.scroll_up:ForceImageSize(22, 22)
     self.scroll_up:SetFont(BUTTONFONT)
+    self.scroll_up:SetTextSize(18)
+    self.scroll_up:SetText("^")
     self.scroll_up:SetOnClick(function() self:ScrollBy(-1) end)
 
     self.scroll_down = self.list:AddChild(ImageButton())
-    self.scroll_down:SetPosition(165, -listVisibleH/2 + 8)
-    self.scroll_down:SetScale(0.45)
-    self.scroll_down:SetText("v")
+    self.scroll_down:SetPosition(165, -listVisibleH/2 + 4)
+    self.scroll_down:ForceImageSize(22, 22)
     self.scroll_down:SetFont(BUTTONFONT)
+    self.scroll_down:SetTextSize(18)
+    self.scroll_down:SetText("v")
     self.scroll_down:SetOnClick(function() self:ScrollBy(1) end)
 
-    self.scroll_indicator = self.list:AddChild(Text(BODYTEXTFONT, 13))
+    self.scroll_indicator = self.list:AddChild(Text(BODYTEXTFONT, 12))
     self.scroll_indicator:SetPosition(165, 0)
     self.scroll_indicator:SetColour(0.55, 0.5, 0.4, 0.8)
 
