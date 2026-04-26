@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-4.21.1"
+local MOD_VERSION = "DEV-4.30.0-dnd-master"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
@@ -1083,6 +1083,81 @@ AddPlayerPostInit(function(player)
         end
     end)
 end)
+
+-- =========================================================================
+-- DnD MASTER (Layer 2): server-pushed dialogue rendered in a HUD widget.
+-- Server picks a line via DnDMaster_Speak("category"); RPC ships
+-- (speaker, text, duration) to every client; client widget renders it.
+-- =========================================================================
+
+local DnDDialogue = require "core/dnd_dialogue"
+
+-- Register the client RPC. Server will call this on every connected
+-- player when it wants the Master to speak.
+AddClientModRPCHandler("MysteryBox", "DnDMasterSpeak", function(speaker, text, duration)
+    local player = GLOBAL.ThePlayer
+    if not player or not player._dnd_widget then return end
+    player._dnd_widget:Speak(speaker, text, duration)
+end)
+
+-- SERVER helper: pick a line for a category and broadcast to all clients.
+-- Safe to call any time after world init.
+local function DnDMaster_Speak(category, override_duration)
+    if not GLOBAL.TheWorld or not GLOBAL.TheWorld.ismastersim then return end
+    local line = DnDDialogue.Pick(category)
+    if not line then return end
+    -- SendModRPCToClient with no userid arg → broadcast to everyone.
+    GLOBAL.SendModRPCToClient(
+        CLIENT_MOD_RPC["MysteryBox"]["DnDMasterSpeak"],
+        nil,
+        line.speaker, line.text, override_duration or 6
+    )
+    Log("DnDMaster [" .. category .. "]: " .. line.speaker .. " says " .. line.text)
+end
+
+-- Make it callable from console for testing:
+--   DnDMaster_Speak("intro")
+--   DnDMaster_Speak("boss_warning_bigbad")
+GLOBAL.rawset(GLOBAL, "DnDMaster_Speak", DnDMaster_Speak)
+
+-- CLIENT: inject the widget into each player's HUD.
+AddPlayerPostInit(function(player)
+    player:DoTaskInTime(1, function()
+        if not player.HUD or player ~= GLOBAL.ThePlayer then return end
+        if player._dnd_widget then return end
+        local DnDMasterWidget = require "widgets/dndmaster_widget"
+        player._dnd_widget = player.HUD.root:AddChild(DnDMasterWidget(player))
+        Log("DnD Master widget added to HUD")
+    end)
+end)
+
+-- SERVER: simple triggers that fire dialogue automatically.
+-- Greeting on player join (delayed so the widget exists on their client).
+AddPlayerPostInit(function(player)
+    if not (GLOBAL.TheWorld and GLOBAL.TheWorld.ismastersim) then return end
+    player:DoTaskInTime(4, function()
+        if player:IsValid() then
+            DnDMaster_Speak("intro")
+        end
+    end)
+end)
+
+-- Day milestone: every 10 days the Master gloats. Hooked to phase changes
+-- so we catch the dawn transition without needing the EventManager.
+local _dnd_last_milestone_day = -1
+AddPrefabPostInit("world", function(world)
+    if not GLOBAL.TheWorld.ismastersim then return end
+    world:ListenForEvent("phasechanged", function(_, phase)
+        if phase ~= "day" then return end
+        local day = world.state and world.state.cycles or 0
+        if day > 0 and day % 10 == 0 and day ~= _dnd_last_milestone_day then
+            _dnd_last_milestone_day = day
+            DnDMaster_Speak("day_milestone")
+        end
+    end)
+end)
+
+-- =========================================================================
 
 -- SERVER: core discovery logic (called from RPC and from OnActivate)
 local function DiscoverTowerServer(target, requesting_player)

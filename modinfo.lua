@@ -4,7 +4,7 @@
 name = "[LOCAL] Mystery Box DEV"
 description = "LOCAL COPY - Synced from dev folder. Features: Lookout Tower, Scout Mode, Challenge System, Boxes, Events."
 author = "DEV"
-version = "DEV-4.21.1"
+version = "DEV-4.30.0-dnd-master"
 
 -- Don't Starve Together compatibility
 api_version = 10
