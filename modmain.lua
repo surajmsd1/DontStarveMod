@@ -614,9 +614,13 @@ local function OnWorldPostInit(world)
         -- Create the event manager
         EventManager = CreateEventManager(world)
 
-        -- Store reference globally for prefabs to access
-        -- (disabled due to strict mode - prefabs use rawget instead)
-        -- EventManager stored locally, accessed via GLOBAL.TheWorld.event_manager if needed
+        -- Expose globally so the in-game console (~) can trigger events
+        -- on demand. Strict GLOBAL mode requires rawset to define a new
+        -- key. Use this from console:
+        --   MysteryBox_EventManager:TriggerEvent("miniboss_warning", ThePlayer)
+        -- This runs the exact same code path as a natural daily roll
+        -- landing on that event — same warnings, same timing, same picker.
+        GLOBAL.rawset(GLOBAL, "MysteryBox_EventManager", EventManager)
 
         -- Register all events
         RegisterAllEvents(EventManager)

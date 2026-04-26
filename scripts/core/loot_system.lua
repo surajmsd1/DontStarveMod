@@ -347,6 +347,95 @@ LootSystem.PACKS = {
             "spidereggsack",
         },
     },
+
+    -- ==========================================================================
+    -- WORLD EVENT REWARD PACKS
+    -- ==========================================================================
+
+    -- Reward for killing a BIG BAD (varg, ewecus, claywarg, spider queen,
+    -- rook, bishop). Bigger guaranteed payout than mini, plus 3 trophy rolls
+    -- weighted toward standout gear so beating one feels properly rewarding.
+    -- Baked into the mob's lootdropper so it only drops on real death.
+    bigbad_reward = {
+        shared = {
+            "goldnugget", "goldnugget", "goldnugget", "goldnugget", "goldnugget", "goldnugget",
+            "redgem", "redgem", "bluegem", "bluegem",
+            "gears", "gears", "gears",
+            "thulecite",
+            "healingsalve", "healingsalve",
+        },
+        bonus = {
+            rolls = 3,
+            table = {
+                {"cane", 14},                  -- Walking Cane (proper prize)
+                {"nightsword", 12},
+                {"hambat", 10},
+                {"armorruins", 10},
+                {"ruinshat", 8},
+                {"magiluminescence", 8},       -- Permanent light + speed
+                {"orangeamulet", 6},
+                {"piggyback", 6},              -- Backpack upgrade
+                {"ruins_bat", 5},              -- Ancient bat: huge damage
+                {"orangestaff", 4},            -- Lazy explorer (tp staff)
+                {"greenstaff", 3},             -- Deconstruction
+                {"yellowstaff", 2},            -- Star caller
+                {"opalstaff", 1},              -- Moon staff (rare)
+            },
+        },
+    },
+
+    -- Reward for killing the weekly mini-boss (treeguard). Guaranteed
+    -- mid-tier supplies plus two trophy rolls that mostly hand out solid
+    -- gear, with a small chance at something memorable like a walking cane.
+    miniboss_reward = {
+        shared = {
+            "goldnugget", "goldnugget", "goldnugget", "goldnugget",
+            "redgem", "bluegem",
+            "gears", "gears",
+            "livinglog", "livinglog",
+        },
+        bonus = {
+            rolls = 2,
+            table = {
+                {"hambat", 18},
+                {"footballhat", 15},
+                {"armorwood", 15},
+                {"nightsword", 10},
+                {"armor_sanity", 8},
+                {"purplegem", 8},
+                {"thulecite", 6},
+                {"cane", 5},               -- Walking Cane: +25% speed, the prize
+                {"orangeamulet", 3},       -- Krampus Sack tier utility
+                {"magiluminescence", 2},   -- Permanent light + speed
+                {"ruins_bat", 2},          -- Ancient bat: huge damage
+            },
+        },
+    },
+
+    -- Daily Treasure Hunt mystery box bonus. Mostly normal good stuff
+    -- (gold, gems, healing) so it always feels worth the trek, with
+    -- occasional standout rolls that make players excited to chase it.
+    treasure_hunt_bonus = {
+        shared = {
+            "goldnugget", "goldnugget", "goldnugget",
+            "healingsalve", "healingsalve",
+        },
+        bonus = {
+            rolls = 4,
+            table = {
+                {"goldnugget", 18},
+                {"redgem", 12}, {"bluegem", 12},
+                {"silk", 10}, {"rope", 10}, {"boards", 10},
+                {"gears", 8},
+                {"purplegem", 6},
+                {"thulecite", 5},
+                {"yellowgem", 3}, {"orangegem", 3}, {"greengem", 3},
+                {"cane", 2},               -- Walking Cane (rare)
+                {"magiluminescence", 2},   -- Permanent light amulet (rare)
+                {"piggyback", 2},          -- Big inventory expansion (rare)
+            },
+        },
+    },
 }
 
 -- =============================================================================
