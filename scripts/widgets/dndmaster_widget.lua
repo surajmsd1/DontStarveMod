@@ -15,12 +15,19 @@ local Widget = require "widgets/widget"
 local Text = require "widgets/text"
 local Image = require "widgets/image"
 
--- Portrait atlases. These are educated guesses — DST ships character
--- avatars under images/avatars/. If a path fails to load the widget
--- silently falls back to a colored square (set in TrySetPortrait).
+-- Portrait atlases. Verified by listing DST's databundles/images.zip on
+-- macOS — `images/avatars.xml` + `images/avatars.tex` both exist and
+-- contain the small character headshots used by chat/scoreboard. Klei's
+-- internal name for Maxwell is "waxwell"; `avatar_waxwell.tex` is the
+-- entry inside that atlas.
+--
+-- Charlie has NO avatar entry in base assets (verified by grepping the
+-- atlas listing). The widget falls back to a purple-tinted square via
+-- TrySetPortrait so she still reads as a distinct speaker.
 local PORTRAITS = {
-    maxwell = {atlas = "images/avatars/avatar_waxwell.xml", tex = "avatar_waxwell.tex"},
-    charlie = {atlas = "images/avatars/avatar_charlie.xml", tex = "avatar_charlie.tex"},
+    maxwell = {atlas = "images/avatars.xml", tex = "avatar_waxwell.tex"},
+    -- charlie deliberately omitted — no real asset exists. Fallback
+    -- in TrySetPortrait paints the square with SPEAKER_COLORS.charlie.
 }
 
 -- Speaker name colors (warm gold for Maxwell, cold purple for Charlie)

@@ -2,7 +2,7 @@
 -- DnD Gamemaster style mod that triggers daily/weekly events with rewards and dangers
 
 -- Version - UPDATE THIS ON EVERY CHANGE
-local MOD_VERSION = "DEV-4.30.0-dnd-master"
+local MOD_VERSION = "DEV-4.30.1-dnd-master"
 
 -- Safer logging function with verbose mode
 local VERBOSE = true
@@ -29,6 +29,17 @@ AddSimPostInit(function()
         end)
     end
 end)
+
+-- Pre-declare image atlases so the engine loads them at mod init.
+-- The DnD Master widget references these at runtime; without these
+-- entries Image:SetTexture silently fails. images/avatars.xml + .tex
+-- are confirmed present in the DST install (databundles/images.zip).
+-- Klei stores Maxwell as "waxwell" internally; the entry inside this
+-- atlas is `avatar_waxwell.tex`.
+Assets = {
+    Asset("ATLAS", "images/avatars.xml"),
+    Asset("IMAGE", "images/avatars.tex"),
+}
 
 -- Register all prefabs
 PrefabFiles = {
